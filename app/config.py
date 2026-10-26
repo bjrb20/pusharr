@@ -88,7 +88,8 @@ DEFAULTS = {
         'request_item': '{request}/{media}/{tmdb}',
         'get_app': '',                  # footer "Get the app"; default: the first recommended app's store for the device
         'recommended_apps': [],         # [{name, description, stores: {ios, android, windows, android_tv, other},
-                                        #   play: {movie, show, show_tmdb}, play_on: [android, ios, mac]}]
+                                        #   play: {item, movie, show, show_tmdb}, play_on: [android, ios, mac]}]
+                                        #   play.item ({server_id} {item_id}) is used when the exact item is known
         'alternative_apps': [],         # [{name, url, text}]  text: "... {link} ..."
     },
     'notifications': {
@@ -105,6 +106,11 @@ DEFAULTS = {
         },
         'digest_hour': 19,
         'batching': {'import_wait': 180, 'library_wait': 60, 'library_burst_limit': 5, 'library_burst_window': 600},
+        # hold new-episode / new-film / request-ready alerts until Jellyfin has the item with its title,
+        # overview and poster: check every check_every s (backing off to check_every_max), ask Jellyfin to
+        # look at it after refresh_after s, and send anyway after max_wait_hours
+        'wait_for_ready': {'enabled': True, 'check_every': 120, 'check_every_max': 1800, 'refresh_after': 600,
+                           'max_wait_hours': 6},
         'follow': {'recent_watch_days': 60, 'caught_up': True, 'watchlist': True, 'requested': True},
     },
     'integrations': {
@@ -405,11 +411,11 @@ def validate(conf):
             elif not _url(url or ''):
                 problems.append(f'{p}.stores.{store}: an https:// address')
         for kind, tpl in (app.get('play') or {}).items():
-            if kind not in ('movie', 'show', 'show_tmdb'):
-                problems.append(f'{p}.play.{kind}: movie, show or show_tmdb')
+            if kind not in ('item', 'movie', 'show', 'show_tmdb'):
+                problems.append(f'{p}.play.{kind}: item, movie, show or show_tmdb')
                 continue
             try:
-                bad = _template_fields(str(tpl)) - {'tmdb', 'tvdb', 'item_id'}
+                bad = _template_fields(str(tpl)) - ({'server_id', 'item_id'} if kind == 'item' else {'tmdb', 'tvdb'})
                 if bad:
                     problems.append(f'{p}.play.{kind}: unknown variable(s) {", ".join(sorted(bad))}')
             except ValueError as e:
@@ -433,6 +439,11 @@ def validate(conf):
     for k, v in n['batching'].items():
         if v < 0:
             problems.append(f'notifications.batching.{k}: must not be negative')
+    w = n['wait_for_ready']
+    if not (10 <= w['check_every'] <= w['check_every_max']):
+        problems.append('notifications.wait_for_ready: check_every at least 10 s and not above check_every_max')
+    if w['refresh_after'] < 0 or not (0 <= w['max_wait_hours'] <= 72):
+        problems.append('notifications.wait_for_ready: refresh_after not negative, max_wait_hours 0 to 72')
     a = conf['approvals']
     if not (a['approvers'] == 'admins' or (isinstance(a['approvers'], list)
                                            and all(isinstance(x, str) and x for x in a['approvers']))):

@@ -27,7 +27,10 @@ links:
   #  - name: Some App
   #    description: Watch on your phone, tablet, computer or TV.
   #    stores: {ios: 'https://...', android: 'https://...', windows: 'https://...', android_tv: 'https://...', other: 'https://...'}
-  #    play: {movie: 'someapp://play?tmdb={tmdb}', show: 'someapp://play?tvdb={tvdb}'}   # optional deep links
+  #    play:                                    # optional deep links
+  #      item: 'someapp://play?server={server_id}&id={item_id}'   # the exact film / episode (Jellyfin ids)
+  #      movie: 'someapp://play?tmdb={tmdb}'    # fallbacks when the exact item isn't known
+  #      show: 'someapp://play?tvdb={tvdb}'
   #    play_on: [android, ios]                  # where those deep links work
   alternative_apps:
     - name: Jellyfin apps
@@ -43,6 +46,7 @@ integrations:                                   # each needs its API key in the 
 
 notifications:
   digest_hour: 19
+  # wait_for_ready: {enabled: true, check_every: 120, check_every_max: 1800, refresh_after: 600, max_wait_hours: 6}
   # types: {movies: {enabled: true, default: false}, ...}   # what people can turn on, and what's on for new people
 
 approvals:

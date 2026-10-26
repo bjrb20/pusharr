@@ -99,11 +99,17 @@ cases = [
     ({'messages': {'test': {'title': 'Hi {name}'}}}, 'messages.test.title: unknown variable(s) {name}'),
     ({'messages': {'test': {'title': 'Hi {user'}}}, 'messages.test.title: bad template'),
     ({'server': {'public_port': 70000}}, 'server.public_port: not a port number'),
+    ({'links': {'recommended_apps': [{'name': 'X', 'play': {'item': 'x://play?tmdb={tmdb}'}}]}},
+     'links.recommended_apps[0].play.item: unknown variable(s) tmdb'),
+    ({'notifications': {'wait_for_ready': {'check_every': 5}}}, 'notifications.wait_for_ready: check_every at least 10 s'),
+    ({'notifications': {'wait_for_ready': {'max_wait_hours': 100}}}, 'notifications.wait_for_ready: refresh_after not negative'),
 ]
 for over, want in cases:
     got = problems_for(over)
     check(any(p.startswith(want) for p in got), f'refused: {want}' + ('' if any(p.startswith(want) for p in got) else f' (got {got})'))
 check(problems_for({'approvals': {'approvers': ['alex', 'sam']}}) == [], 'approvers can be a list of usernames')
+check(problems_for({'links': {'recommended_apps': [{'name': 'X', 'play': {'item': 'x://play?server={server_id}&id={item_id}'}}]}}) == [],
+      'exact-item app links take {server_id} and {item_id}')
 check(problems_for({'branding': {'fonts': {'wordmark': 'custom:My-Font.woff2'}}}) == [], 'custom fonts allowed')
 
 # ---------- saving ----------

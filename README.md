@@ -127,6 +127,10 @@ point `branding.icon_dir` at it.
   - **Watch on <server>:** the exact film or episode in Jellyfin web.
   - **▶ Play in <app>:** the recommended app's deep link, on the platforms where it works, with a
     "Nothing happens? Get <app>" store link under it.
+    - **Exact item:** with a `play.item` template (Plezy: `plezy://play?server={server_id}&id={item_id}`,
+      where the server id is Jellyfin's own `Id`), it opens the exact episode or film. For a batch,
+      that's the first new episode.
+    - **Fallback:** while the item isn't known, the TMDB/TVDB link is used.
   - **Open in Seerr:** that title's request page.
 
   If the item wasn't in Jellyfin yet when the push went out (an import not scanned yet), the page looks
@@ -149,6 +153,12 @@ point `branding.icon_dir` at it.
 
   People who've already watched the new episode are skipped. Mutes and toggles apply. Episode alerts
   need Seerr, since that's where the list of people comes from.
+- **Held until ready:** new-episode, new-film/show and request-ready alerts wait until Jellyfin has
+  the item with its title, overview and poster (`notifications.wait_for_ready`).
+  - Pusharr looks every 2 minutes at first, then less often.
+  - After 10 minutes it asks Jellyfin to scan the new files or refresh the item.
+  - After 6 hours it sends anyway.
+  - `notifier.py waiting` lists what's held.
 - **New films, shows and anime:** Radarr imports and a series' first file. More than
   `library_burst_limit` of a kind within `library_burst_window` (a big library import, say) are sent as
   one summary. Digest subscribers get one message a day at `digest_hour`.
@@ -175,6 +185,7 @@ point `branding.icon_dir` at it.
 docker exec pusharr python app/notifier.py dry-run --tvdb <id> --episodes S01E02   # who would be told, sends nothing
 docker exec pusharr python app/notifier.py send-test <name>                       # one real test push
 docker exec pusharr python app/notifier.py approve <seerr issue id>               # same as tapping Approve
+docker exec pusharr python app/notifier.py waiting                                 # alerts held until Jellyfin has the item
 ```
 
 An issue whose comment contains `[dry-run]` goes through the whole flow, but only logs what it would

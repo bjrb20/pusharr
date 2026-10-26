@@ -386,17 +386,7 @@ def note_for(nid, user):
     n = db().execute('select * from notes where id=?', (nid,)).fetchone()
     if not n or (n['jf_id'] != user['jf_id'] and not user['is_admin']):
         return None
-    ids = json.loads(n['ids'] or '{}')
-    watch, image, resolving = n['watch_url'], n['image'], False
-    if not watch and ids.get('type') in ('movie', 'show'):
-        # the item wasn't in Jellyfin yet when the push went out (import not scanned): look it up now
-        item_id = find_item(ids)
-        if item_id:
-            watch = watch_url(item_id)
-            image = image or poster_url(item_id)
-            db().execute('update notes set watch_url=?, image=? where id=?', (watch, image, nid))
-        else:
-            resolving = now() - n['created'] < 6 * 3600     # the page tries again for a while
+    watch, image, ids, resolving = resolve_note(n)
     links = {'apps': app_links(ids)}
     if watch:
         links['watch'] = watch
@@ -405,6 +395,31 @@ def note_for(nid, user):
         links['request'] = config.link('request_item', media='movie' if kind == 'movie' else 'tv', tmdb=ids['tmdb'])
     return {'title': n['title'], 'body': n['body'], 'image': image, 'created': n['created'],
             'category': n['category'], 'links': links, 'resolving': resolving}
+
+
+def resolve_note(n):
+    """(watch url, image, ids, still resolving) for a stored note, filling in what's now known."""
+    ids = json.loads(n['ids'] or '{}')
+    watch, image, resolving = n['watch_url'], n['image'], False
+    if ids.get('type') in ('movie', 'show') and not (watch and ids.get('item')):
+        # the item wasn't in Jellyfin yet when the push went out (import not scanned): look it up now.
+        # ids.item is what plays (the film, the episode, the first new episode of a batch, or a new show).
+        if not ids.get('item'):
+            ids['item'] = find_item(ids)
+        if not watch:
+            page = find_item(series_ids(ids)) if ids.get('batch') else ids.get('item')
+            watch = watch_url(page) if page else None
+            image = image or poster_url(page)
+        if watch or ids.get('item'):
+            db().execute('update notes set watch_url=?, image=?, ids=? where id=?',
+                         (watch, image, json.dumps({k: v for k, v in ids.items() if v is not None}), n['id']))
+        resolving = not (watch and ids.get('item')) and now() - n['created'] < 6 * 3600   # the page tries again
+    return watch, image, ids, resolving
+
+
+def series_ids(ids):
+    """The show itself, without the episode."""
+    return {k: v for k, v in ids.items() if k not in ('season', 'episode', 'item', 'batch')}
 
 
 def poster_url(item_id):
@@ -456,15 +471,12 @@ def find_item(ids):
 
 
 def backfill_notes(days=30):
-    """Fill in the Jellyfin link of stored notes whose item wasn't found when they were sent."""
+    """Fill in the Jellyfin link and the playable item of stored notes (items not found when they were sent)."""
     fixed = 0
-    for n in db().execute('select * from notes where watch_url is null and ids is not null and created > ?',
-                          (now() - days * 86400,)).fetchall():
-        ids = json.loads(n['ids'] or '{}')
-        item_id = find_item(ids) if ids.get('type') in ('movie', 'show') else None
-        if item_id:
-            db().execute('update notes set watch_url=?, image=coalesce(image, ?) where id=?',
-                         (watch_url(item_id), poster_url(item_id), n['id']))
+    for n in db().execute('select * from notes where ids is not null and created > ?', (now() - days * 86400,)).fetchall():
+        before = (n['watch_url'], json.loads(n['ids']).get('item'))
+        watch, _, ids, _ = resolve_note(n)
+        if (watch, ids.get('item')) != before:
             fixed += 1
     return fixed
 
@@ -475,9 +487,15 @@ def app_links(ids):
     kind, out = ids.get('type'), []
     if kind not in ('movie', 'show'):
         return out
+    server_id = jellyfin_server_id() if ids.get('item') else ''
     for app in config.get('links.recommended_apps') or []:
         play = app.get('play') or {}
         tpl = None
+        if ids.get('item') and server_id and play.get('item'):
+            # the exact film / episode on this server (e.g. plezy://play?server=<id>&id=<item>)
+            out.append({'name': app['name'], 'url': config.fill(play['item'], server_id=server_id, item_id=ids['item']),
+                        'play_on': app.get('play_on') or []})
+            continue
         if kind == 'movie' and ids.get('tmdb'):
             tpl = play.get('movie')
         elif kind == 'show' and ids.get('tvdb') and play.get('show'):
@@ -516,6 +534,9 @@ def notify(msg):
         return add_library(msg)
     payload = payload_for(msg['title'], msg.get('body'), msg.get('item_id'), msg.get('url'), msg.get('image'),
                           msg.get('tag'))
+    ids = dict(msg['ids']) if msg.get('ids') else None
+    if ids and msg.get('item_id') and not ids.get('item') and not ids.get('batch'):
+        ids['item'] = msg['item_id']        # what Play opens: the same film / episode / show as Watch
     targets = msg.get('users')
     if targets is None and cat == 'announcements':
         targets = [r['jf_id'] for r in db().execute('select jf_id from users where signed_in=1')]
@@ -528,7 +549,7 @@ def notify(msg):
         if msg.get('mute_key') and msg['mute_key'] in json.loads(u['mutes'] or '{}'):
             result[u['name']] = {'skipped': 'muted'}
             continue
-        result[u['name']] = deliver(u, cat, payload, ids=msg.get('ids'))
+        result[u['name']] = deliver(u, cat, payload, ids=ids)
     log('notify', cat, repr(payload['title']), json.dumps(result))
     return result
 

@@ -13,7 +13,7 @@ public_url: https://alerts.test
 branding: {app_name: Flix Alerts, server_name: Flix}
 jellyfin: {url: 'http://127.0.0.1:9', public_url: 'https://flix.test'}
 server: {webhook_port: 0}
-notifications: {batching: {import_wait: 1}}
+notifications: {batching: {import_wait: 1}, wait_for_ready: {enabled: false}}
 integrations:
   seerr: {enabled: true, url: 'http://127.0.0.1:9'}
   wizarr: {enabled: true, database: /nonexistent}
@@ -23,6 +23,7 @@ os.environ.update(DATA_DIR=tmp, CONFIG_DIR=tmp, ENV_FILE=env_file, JELLYFIN_API_
 sys.path.insert(0, 'app')
 
 import config, core, notifier, issues, approvals, server  # noqa: E402
+notifier.real_find_series, notifier.real_find_movie = notifier.find_series, notifier.find_movie   # before the tests replace them
 assert config.load() == []
 
 ok_count = 0
@@ -103,14 +104,14 @@ st, msg = post(hook + '/sonarr', {'eventType': 'Download', 'series': {'id': 5, '
                                                                       'tmdbId': 61818, 'type': 'standard', 'path': '/x'},
                                   'episodes': [{'seasonNumber': 4, 'episodeNumber': 5}]})
 check(st == 200 and msg.startswith('queued Tracker'), 'import queued for batching')
-notifier.find_series = lambda tvdb, tmdb: None
+notifier.find_series = lambda tvdb, tmdb, path=None: None
 for _ in range(80):        # the "new show" alert for this series can arrive first; wait for the episode one
     if any(c.get('title') == '📺 Tracker S4E5 is ready on Flix' for c in calls):
         break
     time.sleep(0.1)
 check(any(c['title'] == '📺 Tracker S4E5 is ready on Flix' for c in calls), 'batched import sent after the window')
 calls.clear()
-notifier.find_movie = lambda tmdb: {'Id': 'm' * 32}
+notifier.find_movie = lambda tmdb, path=None: {'Id': 'm' * 32}
 check(post(hook + '/radarr', {'eventType': 'Download', 'isUpgrade': False,
                               'movie': {'title': 'Dune: Part Two', 'year': 2024, 'tmdbId': 693134}})[0] == 200,
       'first-time film import accepted')
@@ -119,7 +120,7 @@ for _ in range(50):
         break
     time.sleep(0.1)
 check(calls and calls[-1] == {'category': 'library', 'kind': 'movies', 'title': 'Dune: Part Two (2024)', 'item_id': 'm' * 32,
-                              'ids': {'type': 'movie', 'tmdb': 693134}}, 'new film announced')
+                              'ids': {'type': 'movie', 'tmdb': 693134, 'item': 'm' * 32}}, 'new film announced (with its exact item)')
 check(post(hook + '/radarr', {'eventType': 'Download', 'isUpgrade': True, 'movie': {}})[1].startswith('ignored'),
       'film upgrades ignored')
 core.notify = real_notify
@@ -192,6 +193,87 @@ check([r['title'] for r in sorted(cands, key=lambda r: issues.rank_key(r, 'Engli
 check(issues.check_queue_item({}, {'title': 'Spider-man.brand.new.day.2026.1080p-dual-lat-cinecalidad.my.mp4',
                                    'quality': {'quality': {'name': 'HDTV-1080p'}}}) == 'foreign dub (dual-lat)',
       'a grab whose real torrent name is bad gets caught in the queue')
+
+# ---------- finding items Jellyfin hasn't identified yet (by folder) ----------
+real_jf = notifier.jf
+CAT = [{'Id': 'r' * 32, 'Name': 'Rivals (2024)', 'ProviderIds': {}, 'Path': '/data/video/TV show/Rivals (2024)'},
+       {'Id': 'v' * 32, 'Name': 'Film', 'ProviderIds': {}, 'Path': '/data/video/movie/Film (2026)/Film.mkv'}]
+notifier.jf = lambda path: {'Items': CAT}
+check(notifier.real_find_series(429920, 208921, '/data/video/TV show/Rivals (2024)/')['Id'] == 'r' * 32
+      and notifier.real_find_series(429920, 208921) is None, 'unidentified show found by its folder (Sonarr and Jellyfin share paths)')
+check(notifier.real_find_movie(5, '/data/video/movie/Film (2026)/Film.mkv')['Id'] == 'v' * 32, 'unidentified film found by its file')
+notifier.jf = real_jf
+
+# ---------- holding alerts until Jellyfin has the content ----------
+W = config.current()['notifications']['wait_for_ready']
+W['enabled'] = True
+core.db().execute('delete from pending_alerts')
+released, asked = [], []
+real_release, real_http = notifier.release, notifier.http
+notifier.release = lambda kind, p, info: released.append((kind, p, info))
+notifier.http = lambda method, url, body=None, headers=None, timeout=30: asked.append((method, url.split('/', 3)[-1], body)) or {}
+JF = {'series': None, 'series_item': None, 'episodes': [], 'movie': None, 'movie_item': None}
+notifier.find_series = lambda tvdb, tmdb, path=None: JF['series']
+notifier.find_movie = lambda tmdb, path=None: JF['movie']
+notifier.jf_item = lambda item_id: JF['series_item'] if JF['series'] and item_id == JF['series']['Id'] else JF['movie_item']
+notifier.jf = lambda path: {'Items': JF['episodes']} if '/Episodes' in path else {'Items': []}
+full = lambda **kw: dict({'Name': 'x', 'Overview': 'Something happens.', 'ImageTags': {'Primary': 'tag'}}, **kw)
+
+t0 = core.now()
+check(notifier.hold('episodes', 'series:7', {'tvdb': 1, 'tmdb': 2, 'title': 'Show', 'keys': [[1, 1]], 'new_series': True,
+                                            'paths': ['/data/video/TV show/Show/Season 01/a.mkv']}) == 'held'
+      and not released, 'import: the alert is held, nothing sent yet')
+check(notifier.hold('episodes', 'series:7', {'tvdb': 1, 'tmdb': 2, 'title': 'Show', 'keys': [[1, 2]], 'paths': []}) == 'merged'
+      and notifier.waiting()[0]['data']['keys'] == [[1, 1], [1, 2]], 'more episodes of the same show join the waiting alert')
+row = notifier.waiting()[0]
+check(row['next_check'] - row['created'] == 120, 'first look after check_every (2 min)')
+notifier.ready_tick(t0 + 130)
+check(not released and notifier.waiting()[0]['checks'] == 1, 'not in Jellyfin: still waiting')
+notifier.ready_tick(t0 + 260)
+notifier.ready_tick(t0 + 390)
+notifier.ready_tick(t0 + 620)
+r = notifier.waiting()[0]
+check(r['refreshed'] == 1 and any(a[1] == 'Library/Media/Updated' and a[2]['Updates'][0]['Path'].endswith('a.mkv') for a in asked),
+      'after refresh_after: Jellyfin is told about the new file')
+check(r['next_check'] - (t0 + 620) == 240, 'and it backs off (2 min, then doubling)')
+JF['series'] = {'Id': 's' * 32}
+JF['series_item'] = full()
+JF['episodes'] = [full(Id='e1' * 16, IndexNumber=1, SeriesId='s' * 32), dict(Id='e2' * 16, IndexNumber=2, Name='Episode 2', SeriesId='s' * 32)]
+ok_, info, why = notifier.check('episodes', notifier.waiting()[0]['data'])
+check(not ok_ and why == 'waiting for S1E2', 'an episode without overview / still image is not ready')
+JF['episodes'][1] = full(Id='e2' * 16, IndexNumber=2, SeriesId='s' * 32)
+JF['series_item'] = dict(full(), Overview='')
+check(notifier.check('episodes', notifier.waiting()[0]['data'])[2] == 'series has no title / overview / poster yet',
+      'a new show also waits for its own overview and poster')
+JF['series_item'] = full()
+notifier.ready_tick(t0 + 2000)
+check(len(released) == 1 and released[0][0] == 'episodes' and released[0][2]['episodes'] == {'S1E1': 'e1' * 16, 'S1E2': 'e2' * 16}
+      and not notifier.waiting(), 'ready: both episodes go out as one alert, with their Jellyfin ids')
+
+released.clear(); asked.clear()
+notifier.hold('movie', 'movie:9', {'title': 'Film (2026)', 'tmdb': 9, 'paths': []})
+JF['movie'] = {'Id': 'f' * 32}
+JF['movie_item'] = dict(full(), ImageTags={})
+notifier.ready_tick(t0 + 10 ** 6 // 1000)
+check(not released, 'film without a poster: waits')
+notifier.ready_tick(core.now() + 700)
+check(any('Items/' + 'f' * 32 + '/Refresh' in a[1] for a in asked), 'film found but incomplete: Jellyfin is asked to refresh it')
+notifier.ready_tick(core.now() + 6 * 3600 + 5)
+check(len(released) == 1 and released[0][2] == {'item': 'f' * 32} and not notifier.waiting(),
+      'never complete: sent anyway after max_wait_hours (its page still deep-links)')
+
+released.clear()
+notifier.hold('request', 'request:5', {'payload': {}, 'title': 'Film', 'media_type': 'movie', 'tmdb': 9})
+JF['movie_item'] = full()
+notifier.ready_tick(core.now() + 200)
+check(released and released[0][0] == 'request' and released[0][2] == {'item': 'f' * 32}, 'request ready waits for the film too')
+
+W['enabled'] = False
+released.clear()
+notifier.hold('movie', 'movie:10', {'title': 'Other', 'tmdb': 10, 'paths': []})
+time.sleep(0.3)
+check(released and released[0][1]['title'] == 'Other' and not notifier.waiting(), 'switched off: sent straight away')
+notifier.release, notifier.http = real_release, real_http
 
 # ---------- picker rules come from the config ----------
 check(A(rel('Film.2026.1080p.WEB.GERMAN.DL', langs=('German',)))[0] is False, 'German-only rejected while English is wanted')

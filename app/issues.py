@@ -194,8 +194,11 @@ def on_seerr(payload):
         threading.Thread(target=guard, args=(request_event, payload, kind), daemon=True).start()
         return 'request event queued'
     if kind == 'MEDIA_AVAILABLE':
-        threading.Thread(target=guard, args=(request_ready, payload), daemon=True).start()
-        return 'request ready queued'
+        media = payload.get('media') or {}
+        rid = payload.get('request_id') or payload.get('request', {}).get('request_id')
+        return N.hold('request', f'request:{rid}', {
+            'payload': payload, 'title': payload.get('subject'), 'media_type': media.get('media_type'),
+            'tmdb': media.get('tmdbId'), 'tvdb': media.get('tvdbId')})
     if kind != 'ISSUE_CREATED':
         return f'ignored {kind}'
     issue_id = int(payload.get('issue_id') or 0)
@@ -212,8 +215,8 @@ def request_event(payload, kind):
     N.log(f'request #{rid} {kind.lower()} ->', json.dumps(res))
 
 
-def request_ready(payload):
-    """Seerr says requested media is available: tell whoever requested it."""
+def request_ready(payload, item_id=None):
+    """Seerr says requested media is available (and Jellyfin has it): tell whoever requested it."""
     rid = payload.get('request_id')
     if not rid:
         return N.log('request ready without a request id, ignored')
@@ -230,8 +233,9 @@ def request_ready(payload):
     msg_title, msg_body = config.msg('request_ready', what=what, title=title, user=name)
     res = tell_person(name, msg_title, msg_body, f'request-{rid}', jf_id=who.get('jellyfinUserId'), category='requests',
                       ids={'type': 'movie' if media.get('mediaType') == 'movie' else 'show',
-                           'tmdb': media.get('tmdbId'), 'tvdb': media.get('tvdbId')},
-                      item_id=media.get('jellyfinMediaId'))
+                           'tmdb': media.get('tmdbId'), 'tvdb': media.get('tvdbId'),
+                           'item': item_id or media.get('jellyfinMediaId')},
+                      item_id=item_id or media.get('jellyfinMediaId'))
     N.log(f'request #{rid} ready ({what}):', res)
 
 

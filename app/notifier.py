@@ -18,6 +18,7 @@ State (what's been sent, issue records, series that already had files) is in the
   python app/notifier.py dry-run --tvdb 428433 --episodes S04E01,S04E02   # who would be told, and why
   python app/notifier.py dry-run --payload sonarr.json
   python app/notifier.py send-test <name>        # one real test message to that person
+  python app/notifier.py waiting                 # alerts held until Jellyfin has the item with its metadata
   python app/notifier.py issues                  # Seerr issue replacements and their state (see issues.py)
   python app/notifier.py approve <seerr issue id>   # same as tapping Approve
   python app/notifier.py email-sync [--dry]      # Wizarr -> Seerr contact sync now (see contacts.py)
@@ -99,14 +100,20 @@ def fmt(k):
     return f'S{k[0]}E{k[1]}'
 
 
-def find_series(tvdb, tmdb):
-    items = jf('/Items?IncludeItemTypes=Series&Recursive=true&Fields=ProviderIds&enableImages=false')['Items']
+def same_path(a, b):
+    return bool(a and b) and a.rstrip('/') == b.rstrip('/')
+
+
+def find_series(tvdb, tmdb, path=None):
+    """The Jellyfin series by TVDB / TMDB id, else by folder (Sonarr's paths are Jellyfin's): a show Jellyfin
+    hasn't identified yet has no provider ids."""
+    items = jf('/Items?IncludeItemTypes=Series&Recursive=true&Fields=ProviderIds,Path&enableImages=false')['Items']
     for idk, val in (('Tvdb', tvdb), ('Tmdb', tmdb)):
         if val:
             for i in items:
                 if str(i.get('ProviderIds', {}).get(idk, '')) == str(val):
                     return i
-    return None
+    return next((i for i in items if same_path(i.get('Path'), path)), None) if path else None
 
 
 def seerr_users():
@@ -177,8 +184,10 @@ def decide(tvdb, tmdb, new_keys, now=None):
         allk = sorted(set(before) | set(new_keys))
         behind = len([k for k in allk if furthest is None or k > furthest])
         d.update(new=unplayed_new, furthest=furthest, behind=behind)
+        first_ep = next((e['Id'] for e in eps if ep_key(e) == unplayed_new[0]), None)
+        d['first_item_id'] = first_ep       # what "Play" starts: the (first) new episode
         if len(unplayed_new) == 1:      # link straight to the episode
-            d['item_id'] = next((e['Id'] for e in eps if ep_key(e) == unplayed_new[0]), d['item_id'])
+            d['item_id'] = first_ep or d['item_id']
         out.append(d)
     return name, out
 
@@ -229,9 +238,12 @@ def process(tvdb, tmdb, sonarr_title, keys, dry=False):
                 line['skip'] = 'already notified'
             elif not dry:
                 try:
-                    ids_ = {'type': 'show', 'tvdb': tvdb, 'tmdb': tmdb}
-                    if len(d['new']) == 1:      # one new episode: its page can find the episode itself later
-                        ids_.update(season=d['new'][0][0], episode=d['new'][0][1])
+                    # the (first) new episode: what Play starts; its page can find it later if it's not known yet
+                    ids_ = {'type': 'show', 'tvdb': tvdb, 'tmdb': tmdb, 'season': d['new'][0][0], 'episode': d['new'][0][1]}
+                    if len(d['new']) > 1:
+                        ids_['batch'] = True       # Watch opens the series, Play the first new episode
+                    if d.get('first_item_id'):
+                        ids_['item'] = d['first_item_id']
                     res = send(d['jf_id'], title, body, tag=f'jellyfin-{tvdb}', person=d['user'], category='episodes',
                                item_id=d.get('item_id'), ids=ids_,
                                mute_key=f'tvdb:{tvdb}' if tvdb else None)
@@ -248,16 +260,29 @@ def process(tvdb, tmdb, sonarr_title, keys, dry=False):
 
 
 def flush(series_id):
+    """The batch window for a series is over: hold its alert until Jellyfin has the episodes."""
     with _lock:
         p = _pending.pop(series_id, None)
     if not p:
         return
+    hold('episodes', f'series:{series_id}', {'tvdb': p['tvdb'], 'tmdb': p['tmdb'], 'title': p['title'],
+                                             'series_path': p.get('series_path'),
+                                             'keys': sorted(p['keys']), 'new_series': bool(p.get('new_series')),
+                                             'anime': bool(p.get('anime')), 'paths': sorted(p.get('paths', ()))})
+
+
+def send_episodes(p, info=None):
+    """Send a (ready, or waited long enough) batch: the new-show alert, then each person's episode alert."""
+    keys = {tuple(k) for k in p['keys']}
     if p.get('new_series'):
-        s = find_series(p['tvdb'], p['tmdb'])
-        alert_library('anime' if p.get('anime') else 'shows', p['title'], s['Id'] if s else None,
-                      {'type': 'show', 'tvdb': p['tvdb'], 'tmdb': p['tmdb']})
+        sid = (info or {}).get('series')
+        if not sid:
+            s = find_series(p['tvdb'], p['tmdb'], p.get('series_path'))
+            sid = s['Id'] if s else None
+        alert_library('anime' if p.get('anime') else 'shows', p['title'], sid,
+                      {'type': 'show', 'tvdb': p['tvdb'], 'tmdb': p['tmdb'], 'item': sid})
     try:
-        name, report = process(p['tvdb'], p['tmdb'], p['title'], p['keys'])
+        name, report = process(p['tvdb'], p['tmdb'], p['title'], keys)
         for r in report:
             if r.get('sent'):
                 log('SENT', r['user'], '|', r['title'], '|', r['message'], '|', '; '.join(r['reasons']),
@@ -266,7 +291,7 @@ def flush(series_id):
                 log('ERROR', r['user'], r['error'])
             elif r['reasons']:
                 log('skip', r['user'], '-', r['skip'], '|', '; '.join(r['reasons']))
-        log('done', name, sorted(fmt(k) for k in p['keys']),
+        log('done', name, sorted(fmt(k) for k in keys),
             'sent to', [r['user'] for r in report if r.get('sent')] or 'nobody')
     except Exception as e:
         log('ERROR processing', p['title'], repr(e))
@@ -281,9 +306,12 @@ def queue_import(payload):
         new_series = seen_series_add(s.get('id'))
         p = _pending.setdefault(s.get('id'), {'tvdb': s.get('tvdbId'), 'tmdb': s.get('tmdbId'),
                                                'title': s.get('title'), 'keys': set(), 'timer': None,
+                                               'series_path': s.get('path'),
                                                'anime': s.get('type') == 'anime' or '/Anime/' in (s.get('path') or '')})
         p['new_series'] = p.get('new_series') or new_series
         p['keys'] |= keys
+        files = payload.get('episodeFiles') or ([payload['episodeFile']] if payload.get('episodeFile') else [])
+        p.setdefault('paths', set()).update(f['path'] for f in files if f.get('path'))
         if p['timer'] is None:      # first import of this series opens a batch window
             p['timer'] = threading.Timer(import_wait(), flush, [s.get('id')])
             p['timer'].daemon = True
@@ -317,26 +345,192 @@ def seen_series_add(series_id):
     return True
 
 
-def find_movie(tmdb):
-    items = jf('/Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds&enableImages=false')['Items']
-    return next((i for i in items if str(i.get('ProviderIds', {}).get('Tmdb')) == str(tmdb)), None)
+def find_movie(tmdb, path=None):
+    """The Jellyfin film by TMDB id, else by its file (Radarr's paths are Jellyfin's)."""
+    items = jf('/Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds,Path&enableImages=false')['Items']
+    return (next((i for i in items if str(i.get('ProviderIds', {}).get('Tmdb')) == str(tmdb)), None)
+            or (next((i for i in items if same_path(i.get('Path'), path)), None) if path else None))
 
 
 def radarr_import(payload):
-    """A film imported for the first time (not an upgrade): wait for Jellyfin to pick it up, then alert."""
+    """A film imported for the first time (not an upgrade): alert once Jellyfin has it, with its metadata."""
     m = payload.get('movie', {})
     title = f"{m.get('title')} ({m.get('year')})" if m.get('year') else m.get('title')
+    path = (payload.get('movieFile') or {}).get('path')
+    if path and not path.startswith('/'):
+        path = (m.get('folderPath') or '').rstrip('/') + '/' + path
+    hold('movie', f"movie:{m.get('tmdbId')}", {'title': title, 'tmdb': m.get('tmdbId'), 'paths': [path] if path else []})
+    return f'new film {title}: alert once Jellyfin has it'
 
-    def later():
+
+def send_movie(p, info=None):
+    item = (info or {}).get('item')
+    if not item:
+        f = find_movie(p['tmdb'], (p.get('paths') or [None])[0])
+        item = f['Id'] if f else None
+    alert_library('movies', p['title'], item, {'type': 'movie', 'tmdb': p['tmdb'], 'item': item})
+
+
+# ---------- holding alerts until the content is really ready ----------
+#
+# Sonarr / Radarr say "imported" before Jellyfin has scanned the file and fetched its title, overview and
+# poster. Alerts wait in the DB (so a restart doesn't lose them) until Jellyfin has all of that: checked
+# every check_every s, backing off to check_every_max; after refresh_after s Jellyfin is asked to look at
+# the new files / refresh the item; after max_wait_hours the alert goes anyway (its page still finds the
+# item later). Batches of the same series keep merging while they wait.
+
+def wait_conf():
+    return config.get('notifications.wait_for_ready')
+
+
+def hold(kind, key, data):
+    """Queue an alert (kind: episodes / movie / request) until its content is ready."""
+    if not wait_conf()['enabled']:
+        threading.Thread(target=release, args=(kind, data, None), daemon=True).start()
+        return 'sending now'
+    t = core.now()
+    with _lock:
+        row = core.db().execute('select * from pending_alerts where key=?', (key,)).fetchone()
+        if row and kind == 'episodes':
+            d = json.loads(row['data'])
+            d['keys'] = sorted({tuple(k) for k in d['keys']} | {tuple(k) for k in data['keys']})
+            d['new_series'] = d.get('new_series') or data.get('new_series')
+            d['series_path'] = d.get('series_path') or data.get('series_path')
+            d['paths'] = sorted(set(d.get('paths', [])) | set(data.get('paths', [])))
+            core.db().execute('update pending_alerts set data=? where id=?', (json.dumps(d), row['id']))
+            log('holding', data.get('title'), [fmt(k) for k in d['keys']], '(merged into the waiting alert)')
+            return 'merged'
+        if row:
+            return 'already waiting'
+        core.db().execute('insert into pending_alerts(kind, key, data, created, next_check, checks, refreshed) '
+                          'values(?,?,?,?,?,0,0)', (kind, key, json.dumps(data), t, t + wait_conf()['check_every']))
+    log('holding', kind, data.get('title'), 'until Jellyfin has it with its metadata')
+    return 'held'
+
+
+def complete(item):
+    """A Jellyfin item with its title, overview and poster."""
+    return bool(item and item.get('Name') and (item.get('Overview') or '').strip()
+                and (item.get('ImageTags') or {}).get('Primary'))
+
+
+def jf_item(item_id):
+    items = jf(f'/Items?Ids={item_id}&Fields=Overview,ProviderIds').get('Items') or []
+    return items[0] if items else None
+
+
+def check(kind, p):
+    """(ready, info, what's missing). info: Jellyfin ids found so far."""
+    if kind == 'movie' or (kind == 'request' and p.get('media_type') == 'movie'):
+        m = find_movie(p['tmdb'], (p.get('paths') or [None])[0])
+        if not m:
+            return False, {}, 'film not in Jellyfin yet'
+        item = jf_item(m['Id'])
+        return complete(item), {'item': m['Id']}, '' if complete(item) else 'film has no title / overview / poster yet'
+    series = find_series(p.get('tvdb'), p.get('tmdb'), p.get('series_path'))
+    if not series:
+        return False, {}, 'series not in Jellyfin yet'
+    info = {'series': series['Id'], 'episodes': {}}
+    if kind == 'request' or p.get('new_series'):
+        if not complete(jf_item(series['Id'])):
+            return False, info, 'series has no title / overview / poster yet'
+    if kind == 'request':
+        return True, info, ''
+    missing = []
+    for season in sorted({k[0] for k in p['keys']}):
+        eps = jf(f"/Shows/{series['Id']}/Episodes?season={season}&Fields=Overview").get('Items') or []
+        by_num = {e.get('IndexNumber'): e for e in eps}
+        for s_, e_ in [k for k in p['keys'] if k[0] == season]:
+            ep = by_num.get(e_)
+            if ep:
+                info['episodes'][fmt((s_, e_))] = ep['Id']
+            if not (ep and complete(ep) and ep.get('SeriesId')):
+                missing.append(fmt((s_, e_)))
+    return not missing, info, f"waiting for {', '.join(missing)}" if missing else ''
+
+
+def nudge(kind, p, info):
+    """Ask Jellyfin to look: at the new files if it doesn't have the item, else refresh the item."""
+    key = config.secret('JELLYFIN_API_KEY')
+    hdr = {'Authorization': f'MediaBrowser Token="{key}"'}
+    base = config.get('jellyfin.url').rstrip('/')
+    done = []
+    try:
+        target = info.get('item') or (info.get('series') if kind == 'request' or p.get('new_series') else None)
+        episodes = [i for i in (info.get('episodes') or {}).values()]
+        if kind == 'episodes' and info.get('series') and len(episodes) < len(p['keys']):
+            http('POST', f"{base}/Items/{info['series']}/Refresh?Recursive=true&MetadataRefreshMode=Default"
+                         '&ImageRefreshMode=Default', headers=hdr)
+            done.append('series refresh')
+        for item in ([target] if target else []) + episodes:
+            http('POST', f'{base}/Items/{item}/Refresh?MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh'
+                         '&ReplaceAllMetadata=false&ReplaceAllImages=false', headers=hdr)
+            done.append(f'refresh {item[:8]}')
+        if not info.get('series') and not info.get('item') and p.get('paths'):
+            http('POST', f'{base}/Library/Media/Updated',
+                 {'Updates': [{'Path': path, 'UpdateType': 'Created'} for path in p['paths']]}, headers=hdr)
+            done.append(f"scan {len(p['paths'])} new file(s)")
+    except Exception as e:
+        done.append(f'failed: {repr(e)[:120]}')
+    log('asked Jellyfin to look at', p.get('title'), '-', ', '.join(done) or 'nothing to ask')
+
+
+def release(kind, p, info):
+    if kind == 'episodes':
+        send_episodes(p, info)
+    elif kind == 'movie':
+        send_movie(p, info)
+    elif kind == 'request':
+        issues.guard(issues.request_ready, p['payload'], (info or {}).get('item') or (info or {}).get('series'))
+
+
+def ready_tick(t=None):
+    """Check the waiting alerts that are due; send the ready (or overdue) ones."""
+    t = t or core.now()
+    w = wait_conf()
+    for row in core.db().execute('select * from pending_alerts where next_check <= ? order by created', (t,)).fetchall():
+        p = json.loads(row['data'])
+        age = t - row['created']
         try:
-            item = find_movie(m.get('tmdbId'))
-        except Exception:
-            item = None
-        alert_library('movies', title, item['Id'] if item else None, {'type': 'movie', 'tmdb': m.get('tmdbId')})
-    t = threading.Timer(import_wait(), later)
-    t.daemon = True
-    t.start()
-    return f'new film {title}: alert in {import_wait()}s'
+            ready, info, why = check(row['kind'], p)
+        except Exception as e:
+            ready, info, why = False, {}, f'check failed: {repr(e)[:120]}'
+        overdue = age >= w['max_wait_hours'] * 3600
+        if ready or overdue:
+            core.db().execute('delete from pending_alerts where id=?', (row['id'],))
+            log('ready:' if ready else f"sending anyway after {w['max_wait_hours']} h ({why}):", row['kind'], p.get('title'),
+                f'after {age // 60} min')
+            guard_release(row['kind'], p, info)
+            continue
+        refreshed = row['refreshed']
+        if age >= w['refresh_after'] and not refreshed:
+            nudge(row['kind'], p, info)
+            refreshed = 1
+        checks = row['checks'] + 1
+        interval = min(w['check_every'] * 2 ** max(0, checks - 3), w['check_every_max'])
+        core.db().execute('update pending_alerts set checks=?, refreshed=?, next_check=? where id=?',
+                          (checks, refreshed, t + interval, row['id']))
+        log('still waiting:', p.get('title'), '-', why, f'(next look in {interval // 60} min)')
+
+
+def guard_release(kind, p, info):
+    try:
+        release(kind, p, info)
+    except Exception as e:
+        log('ERROR sending', kind, p.get('title'), repr(e)[:200])
+
+
+def ready_worker():
+    while True:
+        try:
+            ready_tick()
+        except Exception as e:
+            log('ERROR ready worker', repr(e)[:200])
+        time.sleep(30)
+
+
+def waiting():
+    return [dict(r, data=json.loads(r['data'])) for r in core.db().execute('select * from pending_alerts order by created')]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -400,6 +594,9 @@ def setup():
     issues.N = contacts.N = sys.modules[__name__]
     core.init_db()
     approvals.init_db()
+    core.db().execute('''create table if not exists pending_alerts (
+        id integer primary key, kind text not null, key text unique, data text not null, created integer not null,
+        next_check integer not null, checks integer not null default 0, refreshed integer not null default 0)''')
 
 
 def start():
@@ -412,6 +609,7 @@ def start():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     log(f'webhooks on :{srv.server_port} (batch {import_wait()}s, following = '
         f'{config.get("notifications.follow.recent_watch_days")} days)')
+    threading.Thread(target=ready_worker, daemon=True).start()
     if config.get('integrations.seerr.enabled'):
         issues.start()
     contacts.start()
@@ -462,6 +660,11 @@ def main(argv):
         print(f'{n} Wizarr users;', f'{len(changes)} change(s)' if changes else 'nothing to change')
         for c in changes:
             print(' ', c)
+    elif cmd == 'waiting':          # alerts held until Jellyfin has the content
+        for r in waiting():
+            d = r['data']
+            print(f"{r['kind']:8} {d.get('title')} {[fmt(k) for k in d.get('keys', [])] or ''} | waiting "
+                  f"{(core.now() - r['created']) // 60} min, {r['checks']} checks, refreshed: {bool(r['refreshed'])}")
     elif cmd == 'issues':
         for r in issues.load().values():
             print(f"#{r['issue_id']} {r['kind']} {r['target'].get('title')} from {r['reporter']}: {r['state']}"

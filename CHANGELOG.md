@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0 (2026-10-27)
+
+- **Exact app links:** recommended apps can have a `play.item` template with `{server_id}` and
+  `{item_id}`, e.g. Plezy's `plezy://play?server={server_id}&id={item_id}`. The server id is Jellyfin's
+  own `Id`, which is what Plezy registers a Jellyfin server under. "▶ Play in …" then opens the exact
+  episode or film; for a batch, the first new episode. The TMDB/TVDB links stay as the fallback while
+  the item isn't known.
+- **Alerts wait until the content is really ready** (`notifications.wait_for_ready`).
+  - **Which alerts:** new-episode, new-film/show and request-ready alerts are held until Jellyfin has
+    the item with its title, overview and poster (for episodes, also their series).
+  - **Checking:** every 2 minutes at first, backing off to every 30 minutes.
+  - **Nudging Jellyfin:** after 10 minutes it's told about the new files, or asked to refresh the item.
+  - **Giving up:** after 6 hours the alert goes anyway, and its page still finds the item later.
+  - **Batches** of the same show keep merging while they wait.
+  - **Restarts:** the waiting list is in the database, so it survives them.
+  - **Unidentified items:** shows or films Jellyfin hasn't identified yet (no provider ids) are found
+    by their folder, since Sonarr's and Radarr's paths are Jellyfin's.
+  - **New command:** `notifier.py waiting`.
+
 ## 1.0.1 (2026-10-27)
 
 - **Every push opens a note page with the item's buttons.** Before, alerts whose Jellyfin item wasn't

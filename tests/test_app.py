@@ -178,7 +178,8 @@ links:
   recommended_apps:
     - name: Zapp
       stores: {{ios: 'https://apps.test/zapp'}}
-      play: {{movie: 'zapp://play?type=movie&tmdb={{tmdb}}', show: 'zapp://play?type=show&tvdb={{tvdb}}&mode=next'}}
+      play: {{item: 'zapp://play?server={{server_id}}&id={{item_id}}', movie: 'zapp://play?type=movie&tmdb={{tmdb}}',
+             show: 'zapp://play?type=show&tvdb={{tvdb}}&mode=next'}}
       play_on: [android, ios, mac]
 integrations:
   seerr: {{enabled: true, url: 'http://127.0.0.1:{seerr_port}'}}
@@ -305,9 +306,9 @@ note_url = m['url']
 st, n, _ = req('GET', '/api/note/' + note_url[3:], cookie=cookie)
 check(st == 200 and n['title'] == '📺 Bleach S2E3 is ready' and n['body'] == "You're up to S2E2."
       and n['links'] == {'watch': 'https://flix.test/web/#/details?id=' + 'e' * 32 + '&serverId=srv123',
-                         'apps': [{'name': 'Zapp', 'url': 'zapp://play?type=show&tvdb=74796&mode=next',
+                         'apps': [{'name': 'Zapp', 'url': 'zapp://play?server=srv123&id=' + 'e' * 32,
                                    'play_on': ['android', 'ios', 'mac']}]},
-      'note page: exact Jellyfin item (with serverId) + the app\'s next-episode deep link')
+      'note page: exact Jellyfin item (with serverId) + the app\'s exact-item link (server id = Jellyfin\'s Id)')
 st, body, _ = req('GET', note_url)
 check(st == 200 and b'id="note"' in body, '/n/<id> serves the app (in scope, opens in the installed app)')
 check(req('GET', '/n/../../app/core.py')[0] == 404, 'note paths are strict')
@@ -380,15 +381,15 @@ req('POST', '/notify', {'category': 'requests', 'users': ['b' * 32], 'title': '�
 nu = pushes[0]['msg']['url']
 st, n, _ = req('GET', '/api/note/' + nu[3:], cookie=c_sam)
 check(n['links'] == {'watch': 'https://flix.test/web/#/details?id=' + 'd' * 32 + '&serverId=srv123',
-                     'apps': [{'name': 'Zapp', 'url': 'zapp://play?type=movie&tmdb=693134', 'play_on': ['android', 'ios', 'mac']}],
+                     'apps': [{'name': 'Zapp', 'url': 'zapp://play?server=srv123&id=' + 'd' * 32, 'play_on': ['android', 'ios', 'mac']}],
                      'request': 'https://requests.test/movie/693134'},
-      'request note: exact Jellyfin item, app film link, request page')
+      'request note: exact Jellyfin item, exact app link (server + item id), request page')
 pushes.clear()
-req('POST', '/notify', {'category': 'episodes', 'users': ['b' * 32], 'title': '📺 Tracker S4E4 is ready on Flix',
-                        'item_id': 'c' * 32, 'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}}, port=int_port, auth=A)
+req('POST', '/notify', {'category': 'episodes', 'users': ['b' * 32], 'title': '📺 Unknown S1E1 is ready on Flix',
+                        'ids': {'type': 'show', 'tvdb': 999999, 'tmdb': 61818}}, port=int_port, auth=A)
 st, n, _ = req('GET', '/api/note/' + pushes[0]['msg']['url'][3:], cookie=c_sam)
-check(n['links']['request'] == 'https://requests.test/tv/61818' and n['links']['apps'][0]['url'].endswith('tvdb=428433&mode=next'),
-      'episode note: request show page and the app\'s next episode')
+check(n['links']['request'] == 'https://requests.test/tv/61818' and n['links']['apps'][0]['url'] == 'zapp://play?type=show&tvdb=999999&mode=next'
+      and n['resolving'], 'item not in Jellyfin: the app link falls back to the TVDB id (next episode); request page')
 check(req('GET', '/api/note/' + nu[3:], cookie=cookie)[0] == 200, 'admins can open any note')
 
 # every kind of notification opens a note page with the item's buttons, even when the item wasn't in
@@ -406,19 +407,21 @@ def push_note(msg):
 url, n = push_note({'category': 'episodes', 'title': '📺 Tracker S4E4 is ready on Flix', 'body': "You're up to S4E3.",
                     'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818, 'season': 4, 'episode': 4}})
 check(url.startswith('/n/') and n['links']['watch'] == W + '4' * 32 + '&serverId=srv123' and not n['resolving']
-      and n['image'].startswith('https://flix.test/Items/' + '4' * 32) and n['links']['apps'] and n['links']['request'],
+      and n['image'].startswith('https://flix.test/Items/' + '4' * 32) and n['links']['request']
+      and n['links']['apps'][0]['url'] == 'zapp://play?server=srv123&id=' + '4' * 32,
       'new episode sent before Jellyfin had it: the page finds the episode itself (Watch, app, request)')
 check(core.db().execute('select watch_url from notes where id=?', (url[3:],)).fetchone()[0].endswith('4' * 32 + '&serverId=srv123'),
       '... and remembers it')
 url, n = push_note({'category': 'episodes', 'title': '📺 3 new episodes of Tracker on Flix', 'item_id': 'c' * 32,
-                    'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}})
-check(n['links']['watch'] == W + 'c' * 32 + '&serverId=srv123' and 'mode=next' in n['links']['apps'][0]['url'],
-      'batch of episodes: the series page and the next-episode app link')
+                    'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818, 'season': 4, 'episode': 4, 'batch': True}})
+check(n['links']['watch'] == W + 'c' * 32 + '&serverId=srv123' and n['links']['apps'][0]['url'] == 'zapp://play?server=srv123&id=' + '4' * 32
+      and not n['resolving'], 'batch of episodes: Watch opens the series, Play the first new episode (exact item)')
 url, n = push_note({'category': 'requests', 'title': '🍿 Dune: Part Two (2024) is ready to watch on Flix',
                     'ids': {'type': 'movie', 'tmdb': 693134}})
 check(url.startswith('/n/') and n['links']['watch'] == W + '7' * 32 + '&serverId=srv123'
-      and n['links']['request'] == 'https://requests.test/movie/693134' and 'tmdb=693134' in n['links']['apps'][0]['url'],
-      'request ready without a Jellyfin id from Seerr: found by TMDB id')
+      and n['links']['request'] == 'https://requests.test/movie/693134'
+      and n['links']['apps'][0]['url'] == 'zapp://play?server=srv123&id=' + '7' * 32,
+      'request ready without a Jellyfin id from Seerr: found by TMDB id (Watch and the exact app link)')
 url, n = push_note({'category': 'issues', 'title': '📺 Tracker S4E4 has been replaced with a new copy on Flix',
                     'item_id': '4' * 32, 'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}})
 check(n['links']['watch'] == W + '4' * 32 + '&serverId=srv123' and n['links']['request'], 'problem fixed: item buttons')
