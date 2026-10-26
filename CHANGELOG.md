@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1 (2026-10-27)
+
+- **Every push opens a note page with the item's buttons.** Before, alerts whose Jellyfin item wasn't
+  found at send time (new shows and films still being scanned, request-ready alerts without a Jellyfin
+  id) opened the home page, with no Watch, app or request buttons.
+- **Late lookup:** the note page now looks the item up by its TMDB/TVDB id when it opens (the episode
+  itself for a single new episode), retries for a while, and stores the link once found.
+  `core.backfill_notes()` fills in stored notes.
+- **Taps open the note even when the installed app is already open.** The service worker no longer
+  relies on memory it loses when the browser stops it. It asks the open windows which one is the
+  installed app, and the app asks for the tapped note when it comes to the front.
+- New tests for each notification type's note page, and for notification taps (`tests/test_sw.js`).
+
 ## 1.0.0 (2026-10-27)
 
 First release as **Pusharr**: the app is now white-label, and one config file describes an instance.

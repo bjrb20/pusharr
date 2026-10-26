@@ -468,7 +468,7 @@ async function renderLinks() {
 
 const noteId = (location.pathname.match(/^\/n\/([A-Za-z0-9_-]{8,40})$/) || [])[1];
 
-async function showNote() {
+async function showNote(attempt = 0) {
   show('note');
   let n = null;
   try { n = await api(`/api/note/${noteId}`); } catch (e) { if (e.message === 'signed out') return; }
@@ -494,6 +494,21 @@ async function showNote() {
   }
   $('#note-apps').replaceChildren(...buttons);
   setLink($('#note-request'), n.links.request);
+  // the item may still be on its way into Jellyfin (just imported): look again for a little while
+  if (n.resolving && !n.links.watch && attempt < 12) setTimeout(() => showNote(attempt + 1), 5000);
+}
+
+// ---------- notification taps (with the service worker) ----------
+
+function goTo(url) {
+  const u = new URL(url, location.origin);
+  if (u.origin === location.origin && u.pathname + u.hash !== location.pathname + location.hash) location.assign(u.href);
+}
+
+function askPending() {   // an installed-app window brought forward by a tap may not have been navigated
+  if (env.installed && navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'pending?' });
+  }
 }
 
 // ---------- install as an app ----------
@@ -619,8 +634,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (env.ipad) document.body.classList.add('is-ipad');
   if (pushSupported) {
     registration().catch(() => {});
-    navigator.serviceWorker.ready.then(tellWorkerMode).catch(() => {});
+    navigator.serviceWorker.ready.then(() => { tellWorkerMode(); askPending(); }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', tellWorkerMode);
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === 'which' && e.ports && e.ports[0]) e.ports[0].postMessage({ standalone: env.installed });
+      if (d.type === 'go' && d.url) goTo(d.url);
+    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') askPending(); });
   }
   try { state = await api('/api/me'); } catch { state = null; }
   // Not installed, not known to be installed, not skipped this session: install screen first

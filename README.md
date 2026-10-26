@@ -128,6 +128,12 @@ point `branding.icon_dir` at it.
   - **▶ Play in <app>:** the recommended app's deep link, on the platforms where it works, with a
     "Nothing happens? Get <app>" store link under it.
   - **Open in Seerr:** that title's request page.
+
+  If the item wasn't in Jellyfin yet when the push went out (an import not scanned yet), the page looks
+  it up by its TMDB/TVDB id when it opens, retries for a while, and remembers it once found. A tap
+  reaches the note even when the installed app is already open: the service worker asks the open
+  windows which one is the installed app, and the app also asks for the tapped note when it comes to
+  the front.
 - **Approvals:** new Seerr requests and problem reports go to the approvers.
   - **Approve / Decline** (or **Approve / Ignore**) buttons on the notification, and a **Pending**
     page.
@@ -208,6 +214,7 @@ docker run --rm ghcr.io/bjrb20/pusharr python tests/test_config.py     # config 
 docker run --rm ghcr.io/bjrb20/pusharr python tests/test_app.py        # end to end: fake Jellyfin, Seerr and push service
 docker run --rm ghcr.io/bjrb20/pusharr python tests/test_notifier.py   # webhooks, episode decisions, picker rules
 docker run --rm -v "$PWD":/w -w /w node:22-alpine node tests/test_detect.js   # device detection, real user agents
+docker run --rm -v "$PWD":/w -w /w node:22-alpine node tests/test_sw.js       # notification taps in the service worker
 ```
 
 **What the end-to-end test does:** the fake push service checks the VAPID signature and decrypts

@@ -338,7 +338,8 @@ def payload_for(title, body, item_id=None, url=None, image=None, tag=None):
     if item_id and base:
         url = url or watch_url(item_id)
         image = image or f'{base}/Items/{item_id}/Images/Primary?maxHeight=400&quality=85'
-    return {'title': title[:120], 'body': (body or '')[:300], 'url': url or '/', 'image': image, 'tag': tag}
+    # url None: deliver() gives the push its own note page (/n/<id>) with the item's buttons
+    return {'title': title[:120], 'body': (body or '')[:300], 'url': url, 'image': image, 'tag': tag}
 
 
 def push_one(sub, payload):
@@ -386,14 +387,86 @@ def note_for(nid, user):
     if not n or (n['jf_id'] != user['jf_id'] and not user['is_admin']):
         return None
     ids = json.loads(n['ids'] or '{}')
+    watch, image, resolving = n['watch_url'], n['image'], False
+    if not watch and ids.get('type') in ('movie', 'show'):
+        # the item wasn't in Jellyfin yet when the push went out (import not scanned): look it up now
+        item_id = find_item(ids)
+        if item_id:
+            watch = watch_url(item_id)
+            image = image or poster_url(item_id)
+            db().execute('update notes set watch_url=?, image=? where id=?', (watch, image, nid))
+        else:
+            resolving = now() - n['created'] < 6 * 3600     # the page tries again for a while
     links = {'apps': app_links(ids)}
-    if n['watch_url']:
-        links['watch'] = n['watch_url']
+    if watch:
+        links['watch'] = watch
     kind = ids.get('type')
     if (config.get('links.request') or '').startswith('https://') and ids.get('tmdb'):
         links['request'] = config.link('request_item', media='movie' if kind == 'movie' else 'tv', tmdb=ids['tmdb'])
-    return {'title': n['title'], 'body': n['body'], 'image': n['image'], 'created': n['created'],
-            'category': n['category'], 'links': links}
+    return {'title': n['title'], 'body': n['body'], 'image': image, 'created': n['created'],
+            'category': n['category'], 'links': links, 'resolving': resolving}
+
+
+def poster_url(item_id):
+    base = jellyfin_base()
+    return f'{base}/Items/{item_id}/Images/Primary?maxHeight=400&quality=85' if base and item_id else None
+
+
+_catalogue = {}     # 'Movie' / 'Series' -> (fetched at, items with ProviderIds)
+
+
+def _jellyfin_items(kind):
+    at, items = _catalogue.get(kind, (0, None))
+    if items is None or now() - at > 60:
+        items = jf_request('GET', f'/Items?IncludeItemTypes={kind}&Recursive=true&Fields=ProviderIds'
+                                  '&enableImages=false', token=config.secret('JELLYFIN_API_KEY'))['Items']
+        _catalogue[kind] = (now(), items)
+    return items
+
+
+def find_item(ids):
+    """Jellyfin item id for {'type': movie|show, tmdb, tvdb, season?, episode?}: the film, the episode
+    (when season and episode are given and Jellyfin has it), else the series. None if not there (yet)."""
+    try:
+        if ids.get('type') == 'movie':
+            want = [('Tmdb', ids.get('tmdb'))]
+            items = _jellyfin_items('Movie')
+        else:
+            want = [('Tvdb', ids.get('tvdb')), ('Tmdb', ids.get('tmdb'))]
+            items = _jellyfin_items('Series')
+        match = None
+        for key, val in want:
+            if val:
+                match = next((i for i in items if str((i.get('ProviderIds') or {}).get(key, '')) == str(val)), None)
+                if match:
+                    break
+        if not match:
+            _catalogue.pop('Movie' if ids.get('type') == 'movie' else 'Series', None)   # look again next time
+            return None
+        if ids.get('type') == 'show' and ids.get('season') is not None and ids.get('episode') is not None:
+            eps = jf_request('GET', f"/Shows/{match['Id']}/Episodes?season={int(ids['season'])}&enableImages=false",
+                             token=config.secret('JELLYFIN_API_KEY')).get('Items', [])
+            ep = next((e for e in eps if e.get('IndexNumber') == int(ids['episode'])), None)
+            if ep:
+                return ep['Id']
+        return match['Id']
+    except Exception as e:
+        log('Jellyfin lookup failed', json.dumps(ids), repr(e)[:150])
+        return None
+
+
+def backfill_notes(days=30):
+    """Fill in the Jellyfin link of stored notes whose item wasn't found when they were sent."""
+    fixed = 0
+    for n in db().execute('select * from notes where watch_url is null and ids is not null and created > ?',
+                          (now() - days * 86400,)).fetchall():
+        ids = json.loads(n['ids'] or '{}')
+        item_id = find_item(ids) if ids.get('type') in ('movie', 'show') else None
+        if item_id:
+            db().execute('update notes set watch_url=?, image=coalesce(image, ?) where id=?',
+                         (watch_url(item_id), poster_url(item_id), n['id']))
+            fixed += 1
+    return fixed
 
 
 def app_links(ids):
@@ -469,6 +542,7 @@ def add_library(msg):
     if not config.type_enabled(kind):
         return {'skipped': f'{kind} is switched off'}
     p = payload_for(msg['title'], '', msg.get('item_id'), msg.get('url'), msg.get('image'))
+    # no Jellyfin item yet: url stays empty, so the push gets a note page that finds the item later
     db().execute('insert into library(kind, title, url, image, ts, ids) values(?,?,?,?,?,?)',
                  (kind, msg['title'], p['url'], p['image'], now(), json.dumps(msg['ids']) if msg.get('ids') else None))
     log('library: new', kind, repr(msg['title']))
@@ -512,7 +586,7 @@ def flush_library():
                 db().execute("update library set state='sent', sent_ts=? where id=?", (t, item['id']))
         elif t - pending[0]['ts'] >= burst_window:
             title, body = summary(kind, [i['title'] for i in pending])
-            payload = {'title': title, 'body': body, 'url': config.link('watch_home') or '/', 'image': None,
+            payload = {'title': title, 'body': body, 'url': config.link('watch_home'), 'image': None,
                        'tag': f'library-{kind}-summary'}
             for u in users:
                 deliver(u, kind, payload)
@@ -546,7 +620,7 @@ def run_digest(force=False):
         if parts:
             title, body = config.msg('digest', summary=' · '.join(parts))
             deliver(u, 'library', {'title': title, 'body': body,
-                                   'url': config.link('watch_home') or '/', 'image': first['image'],
+                                   'url': config.link('watch_home'), 'image': first['image'],
                                    'tag': 'library-digest'}, force=True)
             sent += 1
     meta_set('digest_day', today)

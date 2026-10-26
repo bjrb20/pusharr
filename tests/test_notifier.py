@@ -62,7 +62,7 @@ name, rep = notifier.process(428433, 61818, 'Tracker', {(4, 1)})
 check(rep[0]['skip'] == 'already notified' and not calls, 'an episode already sent is not sent again')
 name, rep = notifier.process(428433, 61818, 'Tracker', {(4, 4)})
 check(rep[0].get('sent') and calls[-1]['category'] == 'episodes' and calls[-1]['users'] == ['a' * 32]
-      and calls[-1]['ids'] == {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}
+      and calls[-1]['ids'] == {'type': 'show', 'tvdb': 428433, 'tmdb': 61818, 'season': 4, 'episode': 4}
       and calls[-1]['title'] == '📺 Tracker S4E4 is ready on Flix', 'new episode goes straight to web push')
 name, rep = notifier.process(428433, 61818, 'Tracker', {(4, 4)})
 check(rep[0]['skip'] == 'already notified' and len(calls) == 1, 'and only once')

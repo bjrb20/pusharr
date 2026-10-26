@@ -64,10 +64,21 @@ class FakeJellyfin(BaseHTTPRequestHandler):
                 if i == uid:
                     return self.reply(200, {'Id': i, 'Name': name.title(), 'Policy': {'IsAdministrator': adm}})
             return self.reply(404)
+        if self.path.startswith('/Items') and 'IncludeItemTypes=Movie' in self.path:
+            return self.reply(200, {'Items': MOVIES})
         if self.path.startswith('/Items'):
-            return self.reply(200, {'Items': [{'Id': 'c' * 32, 'Name': 'Tracker', 'ProviderIds': {'Tvdb': '428433'}},
-                                              {'Id': 'd' * 32, 'Name': 'Bleach', 'ProviderIds': {}}]})
+            return self.reply(200, {'Items': SERIES})
+        if self.path.startswith('/Shows/') and '/Episodes' in self.path:
+            sid = self.path.split('/')[2]
+            season = int(self.path.split('season=')[1].split('&')[0])
+            return self.reply(200, {'Items': [e for e in EPISODES.get(sid, []) if e['ParentIndexNumber'] == season]})
         self.reply(404)
+
+
+SERIES = [{'Id': 'c' * 32, 'Name': 'Tracker', 'ProviderIds': {'Tvdb': '428433'}},
+          {'Id': 'd' * 32, 'Name': 'Bleach', 'ProviderIds': {}}]
+MOVIES = [{'Id': '7' * 32, 'Name': 'Dune: Part Two', 'ProviderIds': {'Tmdb': '693134'}}]
+EPISODES = {'c' * 32: [{'Id': '4' * 32, 'ParentIndexNumber': 4, 'IndexNumber': 4}]}
 
 
 SEERR = {   # request id -> request
@@ -379,6 +390,70 @@ st, n, _ = req('GET', '/api/note/' + pushes[0]['msg']['url'][3:], cookie=c_sam)
 check(n['links']['request'] == 'https://requests.test/tv/61818' and n['links']['apps'][0]['url'].endswith('tvdb=428433&mode=next'),
       'episode note: request show page and the app\'s next episode')
 check(req('GET', '/api/note/' + nu[3:], cookie=cookie)[0] == 200, 'admins can open any note')
+
+# every kind of notification opens a note page with the item's buttons, even when the item wasn't in
+# Jellyfin yet at send time (found by provider id when the page opens)
+W = 'https://flix.test/web/#/details?id='
+
+
+def push_note(msg):
+    pushes.clear()
+    st, r, _ = req('POST', '/notify', dict(msg, users=['b' * 32]), port=int_port, auth=A)
+    url = pushes[0]['msg']['url'] if pushes else ''
+    return url, (req('GET', '/api/note/' + url[3:], cookie=c_sam)[1] if url.startswith('/n/') else None)
+
+
+url, n = push_note({'category': 'episodes', 'title': '📺 Tracker S4E4 is ready on Flix', 'body': "You're up to S4E3.",
+                    'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818, 'season': 4, 'episode': 4}})
+check(url.startswith('/n/') and n['links']['watch'] == W + '4' * 32 + '&serverId=srv123' and not n['resolving']
+      and n['image'].startswith('https://flix.test/Items/' + '4' * 32) and n['links']['apps'] and n['links']['request'],
+      'new episode sent before Jellyfin had it: the page finds the episode itself (Watch, app, request)')
+check(core.db().execute('select watch_url from notes where id=?', (url[3:],)).fetchone()[0].endswith('4' * 32 + '&serverId=srv123'),
+      '... and remembers it')
+url, n = push_note({'category': 'episodes', 'title': '📺 3 new episodes of Tracker on Flix', 'item_id': 'c' * 32,
+                    'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}})
+check(n['links']['watch'] == W + 'c' * 32 + '&serverId=srv123' and 'mode=next' in n['links']['apps'][0]['url'],
+      'batch of episodes: the series page and the next-episode app link')
+url, n = push_note({'category': 'requests', 'title': '🍿 Dune: Part Two (2024) is ready to watch on Flix',
+                    'ids': {'type': 'movie', 'tmdb': 693134}})
+check(url.startswith('/n/') and n['links']['watch'] == W + '7' * 32 + '&serverId=srv123'
+      and n['links']['request'] == 'https://requests.test/movie/693134' and 'tmdb=693134' in n['links']['apps'][0]['url'],
+      'request ready without a Jellyfin id from Seerr: found by TMDB id')
+url, n = push_note({'category': 'issues', 'title': '📺 Tracker S4E4 has been replaced with a new copy on Flix',
+                    'item_id': '4' * 32, 'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}})
+check(n['links']['watch'] == W + '4' * 32 + '&serverId=srv123' and n['links']['request'], 'problem fixed: item buttons')
+req('POST', '/api/prefs', {'prefs': {'shows': True, 'shows_mode': 'instant', 'movies': True, 'movies_mode': 'instant'}},
+    c_sam, me_sam['csrf'])
+core.db().execute("update library set state='sent', sent_ts=0")
+pushes.clear()
+req('POST', '/notify', {'category': 'library', 'kind': 'shows', 'title': 'Rivals (2024)',
+                        'ids': {'type': 'show', 'tvdb': 429920, 'tmdb': 208921}}, port=int_port, auth=A)
+core.db().execute("update library set ts=ts-120 where state='pending'")
+core.flush_library()
+sam_push = next(p['msg'] for p in pushes if p.get('msg', {}).get('body') == 'Rivals (2024)')
+st, n, _ = req('GET', '/api/note/' + sam_push['url'][3:], cookie=cookie)
+check(sam_push['url'].startswith('/n/') and 'watch' not in n['links'] and n['resolving']
+      and n['links']['request'] == 'https://requests.test/tv/208921' and n['links']['apps'],
+      'new show not in Jellyfin yet: still a note page (app and request buttons), marked as still looking')
+SERIES.append({'Id': 'e' * 32, 'Name': 'Rivals', 'ProviderIds': {'Tvdb': '429920', 'Tmdb': '208921'}})
+st, n, _ = req('GET', '/api/note/' + sam_push['url'][3:], cookie=cookie)
+check(n['links']['watch'] == W + 'e' * 32 + '&serverId=srv123' and not n['resolving'],
+      'once Jellyfin has scanned it, the same page shows Watch')
+pushes.clear()
+req('POST', '/notify', {'category': 'library', 'kind': 'movies', 'title': 'Dune: Part Two (2024)', 'item_id': '7' * 32,
+                        'ids': {'type': 'movie', 'tmdb': 693134}}, port=int_port, auth=A)
+core.db().execute("update library set ts=ts-120 where state='pending'")
+core.flush_library()
+film = next(p['msg'] for p in pushes if p.get('msg', {}).get('body') == 'Dune: Part Two (2024)')
+st, n, _ = req('GET', '/api/note/' + film['url'][3:], cookie=cookie)
+check(n['links']['watch'] == W + '7' * 32 + '&serverId=srv123' and film['image'], 'new film: note page with Watch and poster')
+core.db().execute("insert into notes(id, jf_id, created, category, title, ids) values('oldnote123', ?, ?, 'library', 'x', ?)",
+                  ('b' * 32, core.now() - 3600, json.dumps({'type': 'show', 'tvdb': 428433})))
+check(core.backfill_notes() >= 1 and core.db().execute("select watch_url from notes where id='oldnote123'").fetchone()[0]
+      == W + 'c' * 32 + '&serverId=srv123', 'stored notes without a link are filled in')
+url, n = push_note({'category': 'announcements', 'title': '📣 Maintenance', 'body': 'Down at 9pm'})
+check(url.startswith('/n/') and n['links'] == {'apps': []} and not n['resolving'], 'announcement: a plain note page')
+req('POST', '/api/prefs', {'prefs': {'shows': False, 'movies': False}}, c_sam, me_sam['csrf'])
 set_conf('links.request', '')
 del config.current()['links']['recommended_apps'][0]['stores']['android']
 

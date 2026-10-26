@@ -229,8 +229,11 @@ def process(tvdb, tmdb, sonarr_title, keys, dry=False):
                 line['skip'] = 'already notified'
             elif not dry:
                 try:
+                    ids_ = {'type': 'show', 'tvdb': tvdb, 'tmdb': tmdb}
+                    if len(d['new']) == 1:      # one new episode: its page can find the episode itself later
+                        ids_.update(season=d['new'][0][0], episode=d['new'][0][1])
                     res = send(d['jf_id'], title, body, tag=f'jellyfin-{tvdb}', person=d['user'], category='episodes',
-                               item_id=d.get('item_id'), ids={'type': 'show', 'tvdb': tvdb, 'tmdb': tmdb},
+                               item_id=d.get('item_id'), ids=ids_,
                                mute_key=f'tvdb:{tvdb}' if tvdb else None)
                     sent.update(ids)
                     line['sent'] = True

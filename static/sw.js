@@ -1,6 +1,6 @@
 'use strict';
 // Service worker: shows pushes, handles Approve / Decline buttons, opens the right page on tap.
-const VERSION = '2026-10-27.1-{{version}}';   // bump on code changes; {{version}} changes with the config
+const VERSION = '2026-10-27.2-{{version}}';   // bump on code changes; {{version}} changes with the config
 
 const APP = '{{app}}';
 const ICON = '{{icon:icon-192.png}}';
@@ -60,14 +60,34 @@ async function act(notification, action) {
   });
 }
 
-// Windows that told us they run as the installed app (display-mode standalone). A browser tab of the
-// same site is also a "window" client, and reusing it would open the tab instead of the app.
-const appWindows = new Set();
+// Which window is the installed app? A browser tab of the same site is also a "window" client, and
+// reusing it would open the tab instead of the app. The worker is stopped whenever it's idle, so
+// nothing is remembered between taps: each tap asks the open windows (they know their display mode).
+const appWindows = new Set();     // windows that said so since this worker started (a hint only)
+const pending = { url: null, at: 0 };   // the last tap, for an app window that comes forward un-navigated
+
 self.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'mode' && e.source) {
-    if (e.data.standalone) appWindows.add(e.source.id); else appWindows.delete(e.source.id);
+  const d = e.data || {};
+  if (d.type === 'mode' && e.source) {
+    if (d.standalone) appWindows.add(e.source.id); else appWindows.delete(e.source.id);
+  }
+  if (d.type === 'pending?' && e.source && pending.url && Date.now() - pending.at < 30000) {
+    e.source.postMessage({ type: 'go', url: pending.url });
+    pending.url = null;
   }
 });
+
+async function appClients() {
+  const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const answers = await Promise.all(wins.map((w) => new Promise((resolve) => {
+    const ch = new MessageChannel();
+    const done = (v) => { clearTimeout(timer); ch.port1.close(); resolve(v); };
+    const timer = setTimeout(() => done(appWindows.has(w.id) ? w : null), 500);
+    ch.port1.onmessage = (ev) => done(ev.data && ev.data.standalone ? w : null);
+    try { w.postMessage({ type: 'which' }, [ch.port2]); } catch { done(appWindows.has(w.id) ? w : null); }
+  })));
+  return answers.filter(Boolean);
+}
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -79,17 +99,25 @@ self.addEventListener('notificationclick', (event) => {
   let url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin);
   if (url.origin !== self.location.origin) url = new URL('/', self.location.origin);
   url = url.href;
+  pending.url = url;
+  pending.at = Date.now();
   event.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const app = wins.filter((w) => appWindows.has(w.id));
+    const app = await appClients();
     const same = app.find((w) => w.url === url);
-    if (same) return same.focus();
+    if (same) { pending.url = null; return same.focus(); }
     if (app.length) {                     // an open installed-app window: bring it forward and go there
-      const w = await app[0].focus();
-      return (w || app[0]).navigate(url).catch(() => self.clients.openWindow(url));
+      const w = (await app[0].focus()) || app[0];
+      try {
+        await w.navigate(url);
+        pending.url = null;
+      } catch {
+        w.postMessage({ type: 'go', url });    // not controlled by this worker: the page navigates itself
+      }
+      return;
     }
     // No installed-app window open: openWindow on an in-scope URL opens the installed app (Android
-    // WebAPK installs via Chrome / Samsung Internet), otherwise a browser tab.
+    // WebAPK installs via Chrome / Samsung Internet), otherwise a browser tab. If Android only brings
+    // the running app forward, the app asks for `pending` when it becomes visible.
     return self.clients.openWindow(url);
   })());
 });
