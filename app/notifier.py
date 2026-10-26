@@ -31,6 +31,7 @@ import config
 import contacts
 import core
 import issues
+import libraries
 
 DATA_DIR = os.environ.get('DATA_DIR', '/data')
 log = core.log
@@ -72,22 +73,24 @@ def sonarr(path):
 
 # ---------- sending ----------
 
-def send(jf_id, title, message, tag, category='episodes', item_id=None, ids=None, mute_key=None, person=None):
-    """One web push to one person (their own toggles and mutes apply). Returns the delivery result."""
+def send(jf_id, title, message, tag, category='episodes', item_id=None, ids=None, mute_key=None, person=None,
+         library=None):
+    """One web push to one person (their own toggles, mutes and library access apply). Returns the result."""
     if not jf_id:
         raise ValueError(f'no Jellyfin user id for {person}')
     res = core.notify({'category': category, 'users': [jf_id], 'title': title, 'body': message, 'item_id': item_id,
-                       'mute_key': mute_key, 'tag': tag, 'ids': ids})
+                       'mute_key': mute_key, 'tag': tag, 'ids': ids, 'library': library})
     return next(iter(res.values()), {}) if isinstance(res, dict) and 'skipped' not in res else res
 
 
-def alert_library(kind, title, item_id=None, ids=None):
-    """Something new arrived (kind: movies/shows/anime); core fans it out by preference."""
+def alert_library(library, title, item_id=None, ids=None):
+    """Something new arrived in a Jellyfin library ("New in <library>"); core fans it out by preference
+    and library access."""
     try:
-        core.notify({'category': 'library', 'kind': kind, 'title': title, 'item_id': item_id, 'ids': ids})
-        log('library alert:', kind, title)
+        res = core.notify({'category': 'library', 'library': library, 'title': title, 'item_id': item_id, 'ids': ids})
+        log('library alert:', title, json.dumps(res))
     except Exception as e:
-        log('ERROR library alert', kind, title, repr(e)[:200])
+        log('ERROR library alert', title, repr(e)[:200])
 
 
 # ---------- deciding ----------
@@ -221,7 +224,7 @@ def save_sent(s):
     core.db().executemany('insert or ignore into notifier_sent(key, ts) values(?, ?)', [(k, core.now()) for k in s])
 
 
-def process(tvdb, tmdb, sonarr_title, keys, dry=False):
+def process(tvdb, tmdb, sonarr_title, keys, dry=False, library=None):
     name, decisions = decide(tvdb, tmdb, set(keys))
     name = name or sonarr_title
     sent = load_sent()
@@ -245,7 +248,7 @@ def process(tvdb, tmdb, sonarr_title, keys, dry=False):
                     if d.get('first_item_id'):
                         ids_['item'] = d['first_item_id']
                     res = send(d['jf_id'], title, body, tag=f'jellyfin-{tvdb}', person=d['user'], category='episodes',
-                               item_id=d.get('item_id'), ids=ids_,
+                               item_id=d.get('item_id'), ids=ids_, library=library,
                                mute_key=f'tvdb:{tvdb}' if tvdb else None)
                     sent.update(ids)
                     line['sent'] = True
@@ -268,21 +271,23 @@ def flush(series_id):
     hold('episodes', f'series:{series_id}', {'tvdb': p['tvdb'], 'tmdb': p['tmdb'], 'title': p['title'],
                                              'series_path': p.get('series_path'),
                                              'keys': sorted(p['keys']), 'new_series': bool(p.get('new_series')),
-                                             'anime': bool(p.get('anime')), 'paths': sorted(p.get('paths', ()))})
+                                             'library': libraries.for_path(p.get('series_path')),
+                                             'paths': sorted(p.get('paths', ()))})
 
 
 def send_episodes(p, info=None):
     """Send a (ready, or waited long enough) batch: the new-show alert, then each person's episode alert."""
     keys = {tuple(k) for k in p['keys']}
+    sid = (info or {}).get('series')
+    if not sid:
+        s = find_series(p['tvdb'], p['tmdb'], p.get('series_path'))
+        sid = s['Id'] if s else None
+    # which library: its folder, else where Jellyfin put the series
+    library = p.get('library') or libraries.for_path(p.get('series_path')) or libraries.for_item(sid)
     if p.get('new_series'):
-        sid = (info or {}).get('series')
-        if not sid:
-            s = find_series(p['tvdb'], p['tmdb'], p.get('series_path'))
-            sid = s['Id'] if s else None
-        alert_library('anime' if p.get('anime') else 'shows', p['title'], sid,
-                      {'type': 'show', 'tvdb': p['tvdb'], 'tmdb': p['tmdb'], 'item': sid})
+        alert_library(library, p['title'], sid, {'type': 'show', 'tvdb': p['tvdb'], 'tmdb': p['tmdb'], 'item': sid})
     try:
-        name, report = process(p['tvdb'], p['tmdb'], p['title'], keys)
+        name, report = process(p['tvdb'], p['tmdb'], p['title'], keys, library=library)
         for r in report:
             if r.get('sent'):
                 log('SENT', r['user'], '|', r['title'], '|', r['message'], '|', '; '.join(r['reasons']),
@@ -306,8 +311,7 @@ def queue_import(payload):
         new_series = seen_series_add(s.get('id'))
         p = _pending.setdefault(s.get('id'), {'tvdb': s.get('tvdbId'), 'tmdb': s.get('tmdbId'),
                                                'title': s.get('title'), 'keys': set(), 'timer': None,
-                                               'series_path': s.get('path'),
-                                               'anime': s.get('type') == 'anime' or '/Anime/' in (s.get('path') or '')})
+                                               'series_path': s.get('path')})
         p['new_series'] = p.get('new_series') or new_series
         p['keys'] |= keys
         files = payload.get('episodeFiles') or ([payload['episodeFile']] if payload.get('episodeFile') else [])
@@ -359,7 +363,8 @@ def radarr_import(payload):
     path = (payload.get('movieFile') or {}).get('path')
     if path and not path.startswith('/'):
         path = (m.get('folderPath') or '').rstrip('/') + '/' + path
-    hold('movie', f"movie:{m.get('tmdbId')}", {'title': title, 'tmdb': m.get('tmdbId'), 'paths': [path] if path else []})
+    hold('movie', f"movie:{m.get('tmdbId')}", {'title': title, 'tmdb': m.get('tmdbId'), 'paths': [path] if path else [],
+                                               'library': libraries.for_path(path or m.get('folderPath'))})
     return f'new film {title}: alert once Jellyfin has it'
 
 
@@ -368,7 +373,8 @@ def send_movie(p, info=None):
     if not item:
         f = find_movie(p['tmdb'], (p.get('paths') or [None])[0])
         item = f['Id'] if f else None
-    alert_library('movies', p['title'], item, {'type': 'movie', 'tmdb': p['tmdb'], 'item': item})
+    library = p.get('library') or libraries.for_path((p.get('paths') or [None])[0]) or libraries.for_item(item)
+    alert_library(library, p['title'], item, {'type': 'movie', 'tmdb': p['tmdb'], 'item': item})
 
 
 # ---------- holding alerts until the content is really ready ----------

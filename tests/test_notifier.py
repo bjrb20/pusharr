@@ -112,15 +112,27 @@ for _ in range(80):        # the "new show" alert for this series can arrive fir
 check(any(c['title'] == '📺 Tracker S4E5 is ready on Flix' for c in calls), 'batched import sent after the window')
 calls.clear()
 notifier.find_movie = lambda tmdb, path=None: {'Id': 'm' * 32}
+import libraries  # noqa: E402
+libraries._cache.update(at=core.now() + 10 ** 8, libs=[      # Jellyfin's libraries, as if just read
+    {'id': 'mov' + '0' * 29, 'name': 'Movies', 'type': 'movies', 'paths': ['/data/video/movie']},
+    {'id': 'ani' + '0' * 29, 'name': 'Anime', 'type': 'tvshows', 'paths': ['/data/video/Anime']}])
 check(post(hook + '/radarr', {'eventType': 'Download', 'isUpgrade': False,
-                              'movie': {'title': 'Dune: Part Two', 'year': 2024, 'tmdbId': 693134}})[0] == 200,
+                              'movie': {'title': 'Dune: Part Two', 'year': 2024, 'tmdbId': 693134,
+                                        'folderPath': '/data/video/movie/Dune Part Two (2024)'},
+                              'movieFile': {'path': '/data/video/movie/Dune Part Two (2024)/Dune.mkv'}})[0] == 200,
       'first-time film import accepted')
 for _ in range(50):
     if calls:
         break
     time.sleep(0.1)
-check(calls and calls[-1] == {'category': 'library', 'kind': 'movies', 'title': 'Dune: Part Two (2024)', 'item_id': 'm' * 32,
-                              'ids': {'type': 'movie', 'tmdb': 693134, 'item': 'm' * 32}}, 'new film announced (with its exact item)')
+check(calls and calls[-1] == {'category': 'library', 'library': 'mov' + '0' * 29, 'title': 'Dune: Part Two (2024)', 'item_id': 'm' * 32,
+                              'ids': {'type': 'movie', 'tmdb': 693134, 'item': 'm' * 32}},
+      'new film announced in the library its folder belongs to (with its exact item)')
+calls.clear()
+notifier.send_episodes({'tvdb': 1, 'tmdb': 2, 'title': 'Frieren', 'keys': [[1, 1]], 'new_series': True,
+                        'series_path': '/data/video/Anime/Frieren'}, {'series': 's' * 32})
+check(calls and calls[0]['category'] == 'library' and calls[0]['library'] == 'ani' + '0' * 29,
+      'a new show is classified by its folder (Anime library), not by series type or name')
 check(post(hook + '/radarr', {'eventType': 'Download', 'isUpgrade': True, 'movie': {}})[1].startswith('ignored'),
       'film upgrades ignored')
 core.notify = real_notify

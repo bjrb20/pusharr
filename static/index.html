@@ -19,7 +19,7 @@
   <script src="/app.js" defer></script>
   <script src="/settings.js" defer></script>
 </head>
-<body data-password="{{password}}" data-qc="{{quick_connect}}" data-app="{{app}}" data-server="{{server}}" data-request-name="{{request_name}}">
+<body data-password="{{password}}" data-qc="{{quick_connect}}" data-app="{{app}}" data-server="{{server}}" data-request-name="{{request_name}}" data-digest-label="{{digest_label}}">
   <header>{{wordmark}}</header>
 
   <div id="open-app" class="banner" hidden>
@@ -174,18 +174,7 @@
         <label class="toggle" data-type="requests"><input type="checkbox" data-pref="requests"><span>My requests are ready</span></label>
         <label class="toggle" data-type="issues"><input type="checkbox" data-pref="issues"><span>Problems I reported are fixed</span></label>
         <label class="toggle" data-type="announcements"><input type="checkbox" data-pref="announcements"><span>Announcements</span></label>
-        <div class="toggle-mode" data-type="movies">
-          <label class="toggle"><input type="checkbox" data-pref="movies"><span>New films added</span></label>
-          <select data-pref="movies_mode" aria-label="When for new films"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
-        </div>
-        <div class="toggle-mode" data-type="shows">
-          <label class="toggle"><input type="checkbox" data-pref="shows"><span>New TV shows added</span></label>
-          <select data-pref="shows_mode" aria-label="When for new TV shows"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
-        </div>
-        <div class="toggle-mode" data-type="anime">
-          <label class="toggle"><input type="checkbox" data-pref="anime"><span>New anime added</span></label>
-          <select data-pref="anime_mode" aria-label="When for new anime"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
-        </div>
+        <div id="lib-toggles" class="lib-toggles"></div>
       </div>
       <p class="muted" data-type="episodes">{{follow_text}}</p>
     </section>

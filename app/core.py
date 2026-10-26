@@ -26,19 +26,21 @@ import config
 ENV = config.ENV
 DATA_DIR = ENV.get('DATA_DIR', '/data')
 
-LIBRARY_KINDS = {'movies': ('film', 'films'), 'shows': ('TV show', 'TV shows'), 'anime': ('anime', 'anime')}
-PREF_TYPES = ('episodes', 'requests', 'issues', 'announcements', 'movies', 'shows', 'anime', 'approvals', 'auto_approved')
+PREF_TYPES = ('episodes', 'requests', 'issues', 'announcements', 'approvals', 'auto_approved')
 CATEGORIES = {'episodes', 'requests', 'issues', 'announcements', 'library', 'test'}
 
 
 def default_prefs():
-    """Each notification type's default (notifications.types.<type>.default); library kinds also get a
-    mode (instant or digest). approvals / auto_approved only matter for approvers."""
+    """Each notification type's default (notifications.types.<type>.default), plus "New in <library>" for
+    each shown Jellyfin library (lib_<id>, with a lib_<id>_mode of instant or digest; libraries.py).
+    approvals / auto_approved only matter for approvers."""
+    import libraries
     p = {}
     for k in PREF_TYPES:
         p[k] = bool(config.get(f'notifications.types.{k}.default', False))
-        if k in LIBRARY_KINDS:
-            p[f'{k}_mode'] = 'instant'
+    for lib in libraries.visible():
+        p[libraries.key(lib['id'])] = lib['default']
+        p[libraries.key(lib['id']) + '_mode'] = 'instant'
     return p
 
 
@@ -106,6 +108,8 @@ def init_db():
     cols = {r['name'] for r in db().execute('pragma table_info(users)')}
     if 'installed' not in cols:     # platforms (ios/android/desktop) where they've run the installed app
         db().execute("alter table users add column installed text not null default '[]'")
+    if 'libraries' not in cols:     # the Jellyfin libraries they can see: JSON list of ids, or "*" (libraries.py)
+        db().execute('alter table users add column libraries text')
 
 
 def meta_get(k, default=None):
@@ -524,7 +528,9 @@ def deliver(user, category, payload, force=False, ids=None):
 
 def notify(msg):
     """Internal entry point (the notifier, POST :8001/notify). msg: category, users (Jellyfin ids), title, body,
-    item_id/url/image/tag, mute_key; or category=library with kind (movies/shows/anime)."""
+    item_id/url/image/tag, mute_key, ids, library (Jellyfin library id) or path; or category=library with
+    library (or path / item_id) and title. Content in a library only goes to people who can see that library."""
+    import libraries
     cat = msg.get('category')
     if cat not in CATEGORIES:
         raise ValueError(f'unknown category {cat!r}')
@@ -540,11 +546,17 @@ def notify(msg):
     targets = msg.get('users')
     if targets is None and cat == 'announcements':
         targets = [r['jf_id'] for r in db().execute('select jf_id from users where signed_in=1')]
+    lib = None
+    if cat not in ('announcements', 'test'):
+        lib = msg.get('library') or libraries.classify(msg.get('path'), msg.get('item_id') or (ids or {}).get('item'))
     result = {}
     for jf_id in targets or []:
         u = ensure_user(jf_id)
         if not u:
             result[jf_id] = {'skipped': 'unknown Jellyfin user'}
+            continue
+        if not libraries.can_see(u, lib):
+            result[u['name']] = {'skipped': 'no access to that library'}
             continue
         if msg.get('mute_key') and msg['mute_key'] in json.loads(u['mutes'] or '{}'):
             result[u['name']] = {'skipped': 'muted'}
@@ -554,89 +566,107 @@ def notify(msg):
     return result
 
 
-# ---------- new films / shows / anime ----------
+# ---------- new in a library ----------
 
 def add_library(msg):
-    kind = msg.get('kind')
-    if kind not in LIBRARY_KINDS:
-        raise ValueError(f'unknown library kind {kind!r}')
-    if not config.type_enabled(kind):
-        return {'skipped': f'{kind} is switched off'}
+    """Queue a "New in <library>" alert. msg: title, library (Jellyfin library id) or path / item_id to
+    find it, item_id, ids; the old kind (movies / shows / anime) is still understood."""
+    import libraries
+    lib = msg.get('library') or (libraries.legacy(msg['kind']) if msg.get('kind') in libraries.LEGACY else None) \
+        or libraries.classify(msg.get('path'), msg.get('item_id'))
+    info = libraries.by_id(lib) if lib else None
+    if not info:
+        log('library: no Jellyfin library for', repr(msg.get('title')), '- not announced')
+        return {'skipped': 'library not found'}
+    if not info['show']:
+        return {'skipped': f"{info['name']} is not a notification type"}
     p = payload_for(msg['title'], '', msg.get('item_id'), msg.get('url'), msg.get('image'))
+    ids = dict(msg['ids']) if msg.get('ids') else None
+    if ids and msg.get('item_id') and not ids.get('item'):
+        ids['item'] = msg['item_id']
     # no Jellyfin item yet: url stays empty, so the push gets a note page that finds the item later
     db().execute('insert into library(kind, title, url, image, ts, ids) values(?,?,?,?,?,?)',
-                 (kind, msg['title'], p['url'], p['image'], now(), json.dumps(msg['ids']) if msg.get('ids') else None))
-    log('library: new', kind, repr(msg['title']))
-    return {'queued': kind}
+                 (lib, msg['title'], p['url'], p['image'], now(), json.dumps(ids) if ids else None))
+    log('library: new in', info['name'], repr(msg['title']))
+    return {'queued': info['name']}
 
 
-def library_users(kind, mode):
+def library_users(lib, mode):
+    import libraries
+    k = libraries.key(lib)
     for u in db().execute('select * from users').fetchall():
         p = prefs_of(u)
-        if p[kind] and p[f'{kind}_mode'] == mode:
+        if p.get(k) and p.get(k + '_mode') == mode and libraries.can_see(u, lib):
             yield u
 
 
-def summary(kind, titles):
-    one, many = LIBRARY_KINDS[kind]
+def summary(info, titles):
     shown = ', '.join(titles[:4]) + (f' and {len(titles) - 4} more' if len(titles) > 4 else '')
-    return config.msg('library_many', count=len(titles), kinds=many, titles=shown)
+    return config.msg('library_many', count=len(titles), library=info['label'], emoji=info['emoji'], titles=shown)
 
 
 def flush_library():
     """Instant subscribers: items one by one, unless more than library_burst_limit arrive within library_burst_window,
     in which case they're held until the window has passed and sent as one summary."""
+    import libraries
     t = now()
     b = config.get('notifications.batching')
     burst_limit, burst_window, wait = b['library_burst_limit'], b['library_burst_window'], b['library_wait']
-    for kind in LIBRARY_KINDS:
-        pending = db().execute("select * from library where kind=? and state='pending' order by ts", (kind,)).fetchall()
+    for lib in [r['kind'] for r in db().execute("select distinct kind from library where state='pending'")]:
+        if lib in libraries.LEGACY:
+            continue                    # queued before the move to libraries: libraries.migrate() handles it
+        info = libraries.by_id(lib)
+        pending = db().execute("select * from library where kind=? and state='pending' order by ts", (lib,)).fetchall()
+        if not info or not info['show']:
+            db().execute("update library set state='dropped' where kind=? and state='pending'", (lib,))
+            continue
         if not pending or t - pending[0]['ts'] < wait:
             continue
         recent = db().execute("select count(*) from library where kind=? and state in ('sent','summarised') "
-                              "and sent_ts > ?", (kind, t - burst_window)).fetchone()[0]
-        users = list(library_users(kind, 'instant'))
-        one, _ = LIBRARY_KINDS[kind]
+                              "and sent_ts > ?", (lib, t - burst_window)).fetchone()[0]
+        users = list(library_users(lib, 'instant'))
+        cat = libraries.key(lib)
         if recent + len(pending) <= burst_limit:
             for item in pending:
-                title, body = config.msg('library_one', kind=one, title=item['title'])
+                title, body = config.msg('library_one', library=info['label'], emoji=info['emoji'], title=item['title'])
                 payload = {'title': title, 'body': body, 'url': item['url'],
                            'image': item['image'], 'tag': f'library-{item["id"]}'}
                 for u in users:
-                    deliver(u, kind, payload, ids=json.loads(item['ids']) if item['ids'] else None)
+                    deliver(u, cat, payload, ids=json.loads(item['ids']) if item['ids'] else None)
                 db().execute("update library set state='sent', sent_ts=? where id=?", (t, item['id']))
         elif t - pending[0]['ts'] >= burst_window:
-            title, body = summary(kind, [i['title'] for i in pending])
+            title, body = summary(info, [i['title'] for i in pending])
             payload = {'title': title, 'body': body, 'url': config.link('watch_home'), 'image': None,
-                       'tag': f'library-{kind}-summary'}
+                       'tag': f'library-{lib}-summary'}
             for u in users:
-                deliver(u, kind, payload)
+                deliver(u, cat, payload)
             db().executemany("update library set state='summarised', sent_ts=? where id=?",
                              [(t, i['id']) for i in pending])
-            log('library: burst of', len(pending), kind, 'sent as one summary to', len(users), 'people')
+            log('library: burst of', len(pending), 'in', info['name'], 'sent as one summary to', len(users), 'people')
 
 
 def run_digest(force=False):
     """Daily at notifications.digest_hour (local time): one message per digest subscriber with everything
-    new since the previous digest (at most 24 h)."""
+    new since the previous digest (at most 24 h), from the libraries they chose and can see."""
+    import libraries
     local = dt.datetime.now(config.tz())
     today = local.strftime('%Y-%m-%d')
     if not force and (local.hour < config.get('notifications.digest_hour') or meta_get('digest_day') == today):
         return
     since = int(meta_get('digest_ts', now() - 86400))
     since = max(since, now() - 86400)
-    items = db().execute('select * from library where ts > ? order by ts', (since,)).fetchall()
+    items = db().execute("select * from library where ts > ? and state != 'dropped' order by ts", (since,)).fetchall()
     sent = 0
     for u in db().execute('select * from users').fetchall():
         p = prefs_of(u)
         parts, first = [], None
-        for kind in LIBRARY_KINDS:
-            if p[kind] and p[f'{kind}_mode'] == 'digest' and config.type_enabled(kind):
-                titles = [i['title'] for i in items if i['kind'] == kind]
+        for info in libraries.visible_for(u):
+            k = libraries.key(info['id'])
+            if p.get(k) and p.get(k + '_mode') == 'digest':
+                titles = [i['title'] for i in items if i['kind'] == info['id']]
                 if titles:
-                    first = first or next(i for i in items if i['kind'] == kind)
-                    one, many = LIBRARY_KINDS[kind]
-                    parts.append(f"{len(titles)} {one if len(titles) == 1 else many}: " + ', '.join(titles[:3])
+                    first = first or next(i for i in items if i['kind'] == info['id'])
+                    parts.append(f"{info['emoji']} {info['label']} ({len(titles)}): " + ', '.join(titles[:3])
                                  + ('…' if len(titles) > 3 else ''))
         if parts:
             title, body = config.msg('digest', summary=' · '.join(parts))
@@ -647,6 +677,14 @@ def run_digest(force=False):
     meta_set('digest_day', today)
     meta_set('digest_ts', now())
     log(f'digest: {len(items)} new item(s), sent to {sent} people')
+
+
+def library_upkeep():
+    """Move the old films/shows/anime choices over (once) and re-read everyone's library access."""
+    import libraries
+    libraries.migrate()
+    libraries.all_libraries()
+    libraries.refresh_access()
 
 
 def cleanup():
@@ -663,7 +701,8 @@ def cleanup():
 def background():
     n = 0
     while True:
-        for fn in (flush_library, run_digest) + ((cleanup,) if n % 60 == 0 else ()):
+        for fn in ((library_upkeep,) if n % 20 == 0 else ()) + (flush_library, run_digest) + \
+                ((cleanup,) if n % 60 == 0 else ()):
             try:
                 fn()
             except Exception as e:

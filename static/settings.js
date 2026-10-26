@@ -16,7 +16,7 @@
   };
   const TYPE_LABELS = {
     episodes: 'New episodes', requests: 'Requests ready', issues: 'Reported problems fixed', announcements: 'Announcements',
-    movies: 'New films', shows: 'New TV shows', anime: 'New anime', approvals: 'Approvals (approvers)',
+    approvals: 'Approvals (approvers)',
     auto_approved: 'Auto-approved requests (approvers)',
   };
 
@@ -60,6 +60,10 @@
         ['links.get_app', '"Get the app" link (empty: the first recommended app)', 'text'],
         ['links.recommended_apps', 'Recommended apps (YAML list: name, description, stores, play, play_on)', 'yaml'],
         ['links.alternative_apps', 'Alternative apps (YAML list: name, url, text with {link})', 'yaml'],
+      ]],
+      ['Libraries ("New in …" alerts)', [
+        ['libraries', 'Per library, by name: show, label, emoji, default (on for new people), order. Found in Jellyfin: '
+          + view.jellyfin_libraries.map((l) => `${l.name} (${l.type}${l.show ? '' : ', hidden'})`).join(', '), 'yaml'],
       ]],
       ['Notifications', [
         ...Object.keys(c.notifications.types).flatMap((k) => [
@@ -174,7 +178,7 @@
       }
     };
     walk(v, 0);
-    return lines.join('\n') || '[]';
+    return lines.join('\n') || (Array.isArray(v) ? '[]' : '{}');
   }
 
   function field([path, label, type, extra]) {

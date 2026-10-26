@@ -98,9 +98,6 @@ DEFAULTS = {
             'requests': {'enabled': True, 'default': True},
             'issues': {'enabled': True, 'default': True},
             'announcements': {'enabled': True, 'default': True},
-            'movies': {'enabled': True, 'default': False},
-            'shows': {'enabled': True, 'default': False},
-            'anime': {'enabled': True, 'default': False},
             'approvals': {'enabled': True, 'default': True},
             'auto_approved': {'enabled': True, 'default': False},
         },
@@ -113,6 +110,10 @@ DEFAULTS = {
                            'max_wait_hours': 6},
         'follow': {'recent_watch_days': 60, 'caught_up': True, 'watchlist': True, 'requested': True},
     },
+    # "New in <library>" alerts come from the Jellyfin libraries. Per library (by name or id):
+    #   show (default: yes, except home videos, music, collections, photos, books...), label, emoji,
+    #   default (on for new people; default no), order (position in the list)
+    'libraries': {},
     'integrations': {
         'seerr': {'enabled': True, 'url': 'http://seerr:5055'},
         'sonarr': {'enabled': True, 'url': 'http://sonarr:8989'},
@@ -150,8 +151,8 @@ DEFAULTS = {
         'request_declined_no_reason': 'Ask an admin if you want to know why.',
         'request_pending': {'title': '🎬 New request from {user}: {what}', 'body': 'Tap to see pending requests.'},
         'request_auto': {'title': '✅ Auto-approved: {user} requested: {what}', 'body': 'No action needed.'},
-        'library_one': {'title': '🎬 New {kind} on {server}', 'body': '{title}'},
-        'library_many': {'title': '🎬 {count} new {kinds} on {server}', 'body': '{titles}'},
+        'library_one': {'title': '{emoji} New in {library}', 'body': '{title}'},
+        'library_many': {'title': '{emoji} {count} new in {library}', 'body': '{titles}'},
         'digest': {'title': '🍿 Today on {server}', 'body': '{summary}'},
         'issue_approval': {'title': '⚠️ {kind} problem on {server}: {title}',
                            'body': '{said}\nApprove to get a different copy (the current one stays until it arrives).'},
@@ -184,7 +185,8 @@ MESSAGE_VARS = {
     'progress_not_started': set(), 'progress_next': {'furthest'}, 'progress_behind': {'furthest', 'behind'},
     'request_ready': {'what', 'title', 'user'}, 'request_declined': {'what', 'reason'},
     'request_declined_no_reason': set(), 'request_pending': {'what', 'user'}, 'request_auto': {'what', 'user'},
-    'library_one': {'kind', 'title'}, 'library_many': {'count', 'kinds', 'titles'}, 'digest': {'summary'},
+    'library_one': {'library', 'emoji', 'title'}, 'library_many': {'count', 'library', 'emoji', 'titles'},
+    'digest': {'summary'},
     'issue_approval': {'kind', 'title', 'said', 'user'}, 'issue_unsupported': {'kind', 'title', 'said', 'why', 'user'},
     'issue_subtitles': {'title', 'said', 'result', 'user'}, 'issue_other': {'title', 'said', 'user'},
     'issue_fixed': {'title'}, 'subtitles_fixed': {'title'}, 'issue_replaced': {'title', 'release'},
@@ -227,6 +229,8 @@ def load(path=None):
         raw = read_file(path)
     except (OSError, ValueError, yaml.YAMLError) as e:
         return [f'could not read the config file: {e}']
+    for k in LEGACY_TYPES:
+        ((raw.get('notifications') or {}).get('types') or {}).pop(k, None)
     conf = merge(DEFAULTS, raw)
     problems = validate(conf)
     if problems and _conf is not None:
@@ -301,7 +305,8 @@ def strip_defaults(conf, defaults):
 # ---------- validation ----------
 
 HEX = re.compile(r'#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?([0-9a-fA-F]{2})?$')
-FREE_KEYS = {'messages'}     # checked separately
+FREE_KEYS = {'messages', 'libraries'}     # checked separately
+LEGACY_TYPES = ('movies', 'shows', 'anime')     # replaced by Jellyfin libraries (1.2.0); dropped quietly
 
 
 def _template_fields(text):
@@ -444,6 +449,22 @@ def validate(conf):
         problems.append('notifications.wait_for_ready: check_every at least 10 s and not above check_every_max')
     if w['refresh_after'] < 0 or not (0 <= w['max_wait_hours'] <= 72):
         problems.append('notifications.wait_for_ready: refresh_after not negative, max_wait_hours 0 to 72')
+    for name, o in conf['libraries'].items():
+        p = f'libraries.{name}'
+        if not isinstance(o, dict):
+            problems.append(f'{p}: should be a mapping (show, label, emoji, default, order)')
+            continue
+        unknown = set(o) - {'show', 'label', 'emoji', 'default', 'order'}
+        if unknown:
+            problems.append(f'{p}: unknown key(s) {", ".join(sorted(unknown))}')
+        for k in ('show', 'default'):
+            if k in o and not isinstance(o[k], bool):
+                problems.append(f'{p}.{k}: should be true or false')
+        for k in ('label', 'emoji'):
+            if k in o and not (isinstance(o[k], str) and o[k].strip()):
+                problems.append(f'{p}.{k}: should be text')
+        if 'order' in o and (isinstance(o['order'], bool) or not isinstance(o['order'], int)):
+            problems.append(f'{p}.order: should be a whole number')
     a = conf['approvals']
     if not (a['approvers'] == 'admins' or (isinstance(a['approvers'], list)
                                            and all(isinstance(x, str) and x for x in a['approvers']))):

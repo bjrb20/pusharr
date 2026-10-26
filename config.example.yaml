@@ -37,6 +37,12 @@ links:
       url: https://jellyfin.org/downloads/clients
       text: Prefer something else? The official {link} work too.
 
+# "New in <library>" alerts come from your Jellyfin libraries (home videos, music and collections hidden
+# unless shown here). Per library, by name: show, label, emoji, default (on for new people), order.
+libraries: {}
+#  Home Videos: {show: true, label: Family, emoji: '🏠'}
+#  Anime: {emoji: '🍥', order: 3}
+
 integrations:                                   # each needs its API key in the env file
   seerr: {enabled: true, url: 'http://seerr:5055'}
   sonarr: {enabled: true, url: 'http://sonarr:8989'}

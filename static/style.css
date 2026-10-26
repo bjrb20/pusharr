@@ -51,6 +51,7 @@ button.link { background: none; color: var(--muted); padding: 4px 0; min-height:
   border-radius: 50%; background: #fff; transition: transform .15s; }
 .toggle input:checked { background: var(--accent); }
 .toggle input:checked::after { transform: translateX(18px); }
+.lib-toggles { display: grid; gap: 4px; }
 .toggle-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toggle-mode .toggle { flex: 1 1 220px; }
 .toggle-mode select { width: auto; flex: 0 0 auto; margin: 0; padding: 6px 8px; font-size: 14px; }

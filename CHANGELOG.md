@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0 (2026-10-27)
+
+- **"New in <library>" alerts from your Jellyfin libraries** replace the fixed films / TV shows / anime
+  alerts.
+  - **Which libraries:** each library (Movies, Shows, Anime, Documentaries…) is its own notification
+    type. Home videos, music, collections, photos and books are hidden unless shown in the config.
+  - **Classifying new content:** by the library folder that holds the file (Sonarr's and Radarr's
+    paths are Jellyfin's), else by where Jellyfin put the item. No more guessing from folder names or
+    series types.
+  - **Per-library options** in `config.yaml` → `libraries`: show/hide, label, emoji, default on/off
+    and order.
+- **Library access:** people only see toggles for, and only get alerts about, content in the
+  libraries they can open in Jellyfin. That covers new-in, new episodes, requests ready and problems
+  fixed. Admins and "all libraries" users see everything. Access is re-read every 10 minutes and at
+  sign-in.
+- **Migration:** existing films / TV shows / anime choices move once to the Movies / Shows / Anime
+  libraries, keeping instant or daily digest. Queued alerts move with them, so nothing is lost or sent
+  twice. Old `notifications.types.movies/shows/anime` settings are dropped quietly.
+- **Message variables:** `library_one` / `library_many` now take `{library}` and `{emoji}`.
+
 ## 1.1.0 (2026-10-27)
 
 - **Exact app links:** recommended apps can have a `play.item` template with `{server_id}` and

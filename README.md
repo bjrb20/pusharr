@@ -6,7 +6,7 @@ computers) and choose what they hear about:
 
 - new episodes of shows they're watching (worked out from what they actually watch)
 - their requests being ready, and problems they reported being fixed
-- new films, TV shows and anime, straight away or in a daily digest
+- what's new in each Jellyfin library (films, shows, anime…), straight away or in a daily digest
 - announcements from the admin
 
 Admins (or the approvers you name) approve Seerr requests and problem reports straight from the
@@ -65,6 +65,7 @@ need a restart.
 | `links` | **Watch** and **Request** links; templates for one item (`watch_item`, `request_item`) and the library (`watch_home`). `recommended_apps`: per-platform store links (`ios`, `android`, `windows`, `android_tv`, `other`), optional deep links (`play.movie` / `play.show` / `play.show_tmdb` with `{tmdb}` `{tvdb}`) and where they work (`play_on`). `alternative_apps`, and a "Get the app" override. |
 | `messages` | The title and text of every notification, with variables such as `{series}` `{episode}` `{count}` `{user}` `{what}` `{server}` `{app}`. The settings page lists which ones each message can use. |
 | `notifications` | Per type (`episodes`, `requests`, `issues`, `announcements`, `movies`, `shows`, `anime`, `approvals`, `auto_approved`): `enabled` (offered at all) and `default` (on for new people). `digest_hour`, `timezone`, batching thresholds. Follow rules: `recent_watch_days`, `caught_up`, `watchlist`, `requested`. |
+| `libraries` | "New in <library>" alerts come from your Jellyfin libraries. Per library (by name or id): `show` (default: yes, except home videos, music, collections, photos, books), `label`, `emoji`, `default` (on for new people) and `order`. People only see, and only get alerts about, libraries they can open in Jellyfin. |
 | `integrations` | `seerr` (Seerr, Jellyseerr or Overseerr), `sonarr`, `radarr`, `bazarr` (subtitle problem reports, with a language), `wizarr` (optional Wizarr → Seerr user sync). Each has `enabled` and a URL; the API keys go in the env file. |
 | `approvals` | `approvers`: `admins` (Jellyfin administrators) or a list of usernames. Token and expiry times. The replacement picker's rules: wanted audio languages, whether the original language is accepted, and patterns that reject dubs, hard-coded subtitles and camera copies, plus minimum sizes. |
 | `server`, `session` | Ports, how long people stay signed in, and the session cookie name. |
@@ -151,7 +152,9 @@ point `branding.icon_dir` at it.
   - **watchlist:** it's on their Seerr watchlist
   - **requested:** they requested it
 
-  People who've already watched the new episode are skipped. Mutes and toggles apply. Episode alerts
+  People who've already watched the new episode are skipped. Mutes, toggles and library access apply:
+  nobody hears about content in a library they can't open in Jellyfin (re-read every 10 minutes and at
+  sign-in). Episode alerts
   need Seerr, since that's where the list of people comes from.
 - **Held until ready:** new-episode, new-film/show and request-ready alerts wait until Jellyfin has
   the item with its title, overview and poster (`notifications.wait_for_ready`).
@@ -159,7 +162,8 @@ point `branding.icon_dir` at it.
   - After 10 minutes it asks Jellyfin to scan the new files or refresh the item.
   - After 6 hours it sends anyway.
   - `notifier.py waiting` lists what's held.
-- **New films, shows and anime:** Radarr imports and a series' first file. More than
+- **New in <library>:** Radarr imports and a series' first file, filed under the Jellyfin library
+  whose folder holds them (else wherever Jellyfin put the item). More than
   `library_burst_limit` of a kind within `library_burst_window` (a big library import, say) are sent as
   one summary. Digest subscribers get one message a day at `digest_hour`.
 - **Problem reports (Seerr "Report an Issue"):**

@@ -145,13 +145,35 @@ async function test() {
   setTimeout(() => { btn.textContent = 'Send test notification'; btn.disabled = false; }, 4000);
 }
 
+// "New in <library>" rows: one per Jellyfin library this person can see (from /api/me)
+function renderLibraryToggles() {
+  const box = $('#lib-toggles');
+  box.replaceChildren(...(state.libraries || []).map((lib) => {
+    const row = Object.assign(document.createElement('div'), { className: 'toggle-mode' });
+    const label = Object.assign(document.createElement('label'), { className: 'toggle' });
+    const cb = Object.assign(document.createElement('input'), { type: 'checkbox' });
+    cb.dataset.pref = lib.key;
+    label.append(cb, Object.assign(document.createElement('span'), { textContent: `${lib.emoji} New in ${lib.label}` }));
+    const sel = document.createElement('select');
+    sel.dataset.pref = `${lib.key}_mode`;
+    sel.setAttribute('aria-label', `When for new in ${lib.label}`);
+    sel.append(new Option('Straight away', 'instant'), new Option(document.body.dataset.digestLabel, 'digest'));
+    for (const el of [cb, sel]) el.addEventListener('change', () => savePref(el));
+    row.append(label, sel);
+    return row;
+  }));
+}
+
 function renderPrefs() {
+  const libKeys = (state.libraries || []).map((l) => l.key).join(',');
+  if ($('#lib-toggles').dataset.keys !== libKeys) { renderLibraryToggles(); $('#lib-toggles').dataset.keys = libKeys; }
   for (const el of document.querySelectorAll('[data-pref]')) {
     const v = state.prefs[el.dataset.pref];
     if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
   }
-  for (const k of ['movies', 'shows', 'anime']) {
-    document.querySelector(`select[data-pref="${k}_mode"]`).disabled = !state.prefs[k];
+  for (const lib of state.libraries || []) {
+    const sel = document.querySelector(`select[data-pref="${lib.key}_mode"]`);
+    if (sel) sel.disabled = !state.prefs[lib.key];
   }
   // notification types switched off in the config aren't offered
   for (const el of document.querySelectorAll('[data-type]')) el.hidden = !(state.types || []).includes(el.dataset.type);
@@ -209,12 +231,12 @@ async function renderAdmin() {
   $('#admin').hidden = !state.user.is_admin;
   if (!state.user.is_admin) return;
   const users = await api('/api/admin/users');
-  const labels = { episodes: 'eps', requests: 'req', issues: 'fix', announcements: 'news', movies: 'films',
-    shows: 'shows', anime: 'anime' };
+  const labels = { episodes: 'eps', requests: 'req', issues: 'fix', announcements: 'news' };
+  for (const lib of state.libraries || []) labels[lib.key] = lib.label.toLowerCase();
   $('#users').replaceChildren(...users.map((u) => {
     const tr = document.createElement('tr');
     const on = Object.entries(labels).filter(([k]) => u.prefs[k])
-      .map(([k, l]) => (['movies', 'shows', 'anime'].includes(k) && u.prefs[k + '_mode'] === 'digest' ? l + ' (7pm)' : l));
+      .map(([k, l]) => (k.startsWith('lib_') && u.prefs[k + '_mode'] === 'digest' ? `${l} (digest)` : l));
     const cells = [
       Object.assign(document.createElement('input'), { type: 'checkbox', value: u.id, title: `Send only to ${u.name}` }),
       u.name + (u.signed_in ? '' : ' (not signed in)'),
@@ -619,7 +641,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#test').addEventListener('click', test);
   $('#mute-form').addEventListener('submit', mute);
   $('#announce-form').addEventListener('submit', announce);
-  for (const el of document.querySelectorAll('[data-pref]')) el.addEventListener('change', () => savePref(el));
+  for (const el of document.querySelectorAll('[data-pref]')) el.addEventListener('change', () => savePref(el));   // fixed rows
   window.addEventListener('hashchange', () => { if (location.hash === '#pending' && state) renderPending(); });
   $('#install-btn').addEventListener('click', installNow);
   $('#install-skip').addEventListener('click', continueFromInstall);

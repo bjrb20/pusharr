@@ -99,6 +99,11 @@ cases = [
     ({'messages': {'test': {'title': 'Hi {name}'}}}, 'messages.test.title: unknown variable(s) {name}'),
     ({'messages': {'test': {'title': 'Hi {user'}}}, 'messages.test.title: bad template'),
     ({'server': {'public_port': 70000}}, 'server.public_port: not a port number'),
+    ({'libraries': {'Movies': {'show': 'yes'}}}, 'libraries.Movies.show: should be true or false'),
+    ({'libraries': {'Movies': {'colour': 'red'}}}, 'libraries.Movies: unknown key(s) colour'),
+    ({'libraries': {'Movies': 'hide'}}, 'libraries.Movies: should be a mapping'),
+    ({'libraries': {'Movies': {'order': 'first'}}}, 'libraries.Movies.order: should be a whole number'),
+    ({'messages': {'library_one': {'title': 'New {kind}'}}}, 'messages.library_one.title: unknown variable(s) {kind}'),
     ({'links': {'recommended_apps': [{'name': 'X', 'play': {'item': 'x://play?tmdb={tmdb}'}}]}},
      'links.recommended_apps[0].play.item: unknown variable(s) tmdb'),
     ({'notifications': {'wait_for_ready': {'check_every': 5}}}, 'notifications.wait_for_ready: check_every at least 10 s'),
@@ -108,6 +113,13 @@ for over, want in cases:
     got = problems_for(over)
     check(any(p.startswith(want) for p in got), f'refused: {want}' + ('' if any(p.startswith(want) for p in got) else f' (got {got})'))
 check(problems_for({'approvals': {'approvers': ['alex', 'sam']}}) == [], 'approvers can be a list of usernames')
+check(problems_for({'libraries': {'Home Videos': {'show': True, 'label': 'Family', 'emoji': '🏠', 'default': True, 'order': 1}}}) == [],
+      'per-library options')
+write('notifications: {types: {movies: {enabled: false}, anime: {default: true}, episodes: {default: false}}}\n')
+check(config.load() == [] and config.get('notifications.types.episodes.default') is False
+      and 'movies' not in config.get('notifications.types'), 'old movies / shows / anime types in a config file are dropped quietly')
+write('branding: {server_name: Moviebox}\n')
+config.load()
 check(problems_for({'links': {'recommended_apps': [{'name': 'X', 'play': {'item': 'x://play?server={server_id}&id={item_id}'}}]}}) == [],
       'exact-item app links take {server_id} and {item_id}')
 check(problems_for({'branding': {'fonts': {'wordmark': 'custom:My-Font.woff2'}}}) == [], 'custom fonts allowed')

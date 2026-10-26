@@ -58,12 +58,19 @@ class FakeJellyfin(BaseHTTPRequestHandler):
         if self.path.startswith('/QuickConnect/Connect?secret='):
             q = QC.get(self.path.split('=', 1)[1])
             return self.reply(200, {'Authenticated': q['approved']}) if q and not q.get('used') else self.reply(404)
+        if self.path == '/Library/VirtualFolders':
+            return self.reply(200, LIBS)
+        if self.path == '/Users':
+            return self.reply(200, [jf_user(i, name, adm) for name, (i, _, adm) in USERS.items()])
         if self.path.startswith('/Users/'):
             uid = self.path.split('/')[2]
             for name, (i, _, adm) in USERS.items():
                 if i == uid:
-                    return self.reply(200, {'Id': i, 'Name': name.title(), 'Policy': {'IsAdministrator': adm}})
+                    return self.reply(200, jf_user(i, name, adm))
             return self.reply(404)
+        if self.path.startswith('/Items/') and self.path.endswith('/Ancestors'):
+            lib = ITEM_LIB.get(self.path.split('/')[2])
+            return self.reply(200, [{'Id': 'parent' + '0' * 26}] + ([{'Id': lib}] if lib else []))
         if self.path.startswith('/Items') and 'IncludeItemTypes=Movie' in self.path:
             return self.reply(200, {'Items': MOVIES})
         if self.path.startswith('/Items'):
@@ -73,6 +80,22 @@ class FakeJellyfin(BaseHTTPRequestHandler):
             season = int(self.path.split('season=')[1].split('&')[0])
             return self.reply(200, {'Items': [e for e in EPISODES.get(sid, []) if e['ParentIndexNumber'] == season]})
         self.reply(404)
+
+
+MOV, SHO, ANI, HOME, MUS = ('11aa' * 8, '22bb' * 8, '33cc' * 8, '44dd' * 8, '55ee' * 8)
+LIBS = [{'Name': 'Movies', 'ItemId': MOV, 'CollectionType': 'movies', 'Locations': ['/data/video/movie']},
+        {'Name': 'Shows', 'ItemId': SHO, 'CollectionType': 'tvshows', 'Locations': ['/data/video/TV show', '/data/video/Animation']},
+        {'Name': 'Anime', 'ItemId': ANI, 'CollectionType': 'tvshows', 'Locations': ['/data/video/Anime']},
+        {'Name': 'Home Videos', 'ItemId': HOME, 'CollectionType': 'homevideos', 'Locations': ['/data/video/home video']},
+        {'Name': 'Music', 'ItemId': MUS, 'CollectionType': 'music', 'Locations': ['/data/music']}]
+ACCESS = {'b' * 32: [MOV, SHO]}         # Sam can't see Anime (or home videos, music); Alex is an admin
+ITEM_LIB = {'c' * 32: SHO, '4' * 32: SHO, 'e' * 32: SHO, '7' * 32: MOV, 'f' * 32: MOV, 'z' * 32: ANI}
+K = lambda lib: 'lib_' + lib
+
+
+def jf_user(i, name, adm):
+    pol = {'IsAdministrator': adm, 'EnableAllFolders': adm, 'EnabledFolders': [] if adm else ACCESS.get(i, [])}
+    return {'Id': i, 'Name': name.title(), 'Policy': pol}
 
 
 SERIES = [{'Id': 'c' * 32, 'Name': 'Tracker', 'ProviderIds': {'Tvdb': '428433'}},
@@ -259,16 +282,17 @@ dbtext = open(os.path.join(tmp, 'alerts.db'), 'rb').read()
 check(b'secret' not in dbtext and b'tok-' not in dbtext and cookie.split('=', 1)[1].encode() not in dbtext,
       'password, Jellyfin token and raw session token are not stored')
 csrf = me['csrf']
-check(me['prefs']['episodes'] and not me['prefs']['movies'] and 'ha' not in me['prefs'] and 'movies' in me['types'],
+check(me['prefs']['episodes'] and not me['prefs'][K(MOV)] and 'ha' not in me['prefs'] and 'movies' not in me['types']
+      and [l['label'] for l in me['libraries']] == ['Movies', 'Shows', 'Anime'] and me['libraries'][0]['emoji'] == '🎬',
       'default preferences, every type offered')
 
-check(req('POST', '/api/prefs', {'prefs': {'movies': True}}, cookie)[0] == 403, 'POST without CSRF token refused')
-check(req('POST', '/api/prefs', {'prefs': {'movies': True}}, cookie, csrf, origin='https://evil.test')[0] == 403,
+check(req('POST', '/api/prefs', {'prefs': {K(MOV): True}}, cookie)[0] == 403, 'POST without CSRF token refused')
+check(req('POST', '/api/prefs', {'prefs': {K(MOV): True}}, cookie, csrf, origin='https://evil.test')[0] == 403,
       'POST from another origin refused')
-st, r, _ = req('POST', '/api/prefs', {'prefs': {'movies': True, 'shows': True, 'shows_mode': 'digest', 'bogus': 1,
-                                                'anime_mode': 'hourly'}}, cookie, csrf)
-check(st == 200 and r['prefs']['movies'] and r['prefs']['shows_mode'] == 'digest' and 'bogus' not in r['prefs']
-      and r['prefs']['anime_mode'] == 'instant', 'prefs saved and validated')
+st, r, _ = req('POST', '/api/prefs', {'prefs': {K(MOV): True, K(SHO): True, K(SHO) + '_mode': 'digest', 'bogus': 1,
+                                                K(ANI) + '_mode': 'hourly', K(HOME): True}}, cookie, csrf)
+check(st == 200 and r['prefs'][K(MOV)] and r['prefs'][K(SHO) + '_mode'] == 'digest' and 'bogus' not in r['prefs']
+      and r['prefs'][K(ANI) + '_mode'] == 'instant' and K(HOME) not in r['prefs'], 'prefs saved and validated (hidden libraries refused)')
 st, shows, _ = req('GET', '/api/shows', cookie=cookie)
 check(shows[0] == {'key': 'tvdb:428433', 'name': 'Tracker'} and shows[1]['key'].startswith('jf:'), 'show list for mutes')
 st, r, _ = req('POST', '/api/mutes', {'add': {'key': 'tvdb:428433', 'name': 'Tracker'}}, cookie, csrf)
@@ -325,26 +349,26 @@ for t in ('Film A', 'Film B', 'Film C'):
 core.db().execute('update library set ts=ts-120')
 core.flush_library()
 check([p['msg']['body'] for p in pushes if 'msg' in p] == ['Film A', 'Film B', 'Film C'], '3 new films sent one by one')
-req('POST', '/api/prefs', {'prefs': {'shows_mode': 'instant'}}, cookie, csrf)
+req('POST', '/api/prefs', {'prefs': {K(SHO) + '_mode': 'instant'}}, cookie, csrf)
 pushes.clear()
 for i in range(8):
     req('POST', '/notify', {'category': 'library', 'kind': 'shows', 'title': f'Show {i}'}, port=int_port, auth=A)
-core.db().execute("update library set ts=ts-120 where kind='shows'")
+core.db().execute("update library set ts=ts-120 where kind=?", (SHO,))
 core.flush_library()
 check(not pushes, 'burst of 8 shows held back')
-core.db().execute("update library set ts=ts-600 where kind='shows'")
+core.db().execute("update library set ts=ts-600 where kind=?", (SHO,))
 core.flush_library()
 msgs = [p['msg'] for p in pushes if 'msg' in p]
-check(len(msgs) == 1 and msgs[0]['title'] == '🎬 8 new TV shows on Flix' and 'and 4 more' in msgs[0]['body'],
+check(len(msgs) == 1 and msgs[0]['title'] == '📺 8 new in Shows' and 'and 4 more' in msgs[0]['body'],
       'burst sent as one summary')
 
 # digest
-req('POST', '/api/prefs', {'prefs': {'movies_mode': 'digest'}}, cookie, csrf)
+req('POST', '/api/prefs', {'prefs': {K(MOV) + '_mode': 'digest'}}, cookie, csrf)
 pushes.clear()
 core.meta_set('digest_ts', core.now() - 3600)
 core.run_digest(force=True)
 msgs = [p['msg'] for p in pushes if 'msg' in p]
-check(len(msgs) == 1 and msgs[0]['title'] == '🍿 Today on Flix' and msgs[0]['body'].startswith('3 films: Film A'),
+check(len(msgs) == 1 and msgs[0]['title'] == '🍿 Today on Flix' and msgs[0]['body'].startswith('🎬 Movies (3): Film A'),
       'daily digest')
 
 # admin
@@ -425,7 +449,7 @@ check(url.startswith('/n/') and n['links']['watch'] == W + '7' * 32 + '&serverId
 url, n = push_note({'category': 'issues', 'title': '📺 Tracker S4E4 has been replaced with a new copy on Flix',
                     'item_id': '4' * 32, 'ids': {'type': 'show', 'tvdb': 428433, 'tmdb': 61818}})
 check(n['links']['watch'] == W + '4' * 32 + '&serverId=srv123' and n['links']['request'], 'problem fixed: item buttons')
-req('POST', '/api/prefs', {'prefs': {'shows': True, 'shows_mode': 'instant', 'movies': True, 'movies_mode': 'instant'}},
+req('POST', '/api/prefs', {'prefs': {K(SHO): True, K(SHO) + '_mode': 'instant', K(MOV): True, K(MOV) + '_mode': 'instant'}},
     c_sam, me_sam['csrf'])
 core.db().execute("update library set state='sent', sent_ts=0")
 pushes.clear()
@@ -456,7 +480,62 @@ check(core.backfill_notes() >= 1 and core.db().execute("select watch_url from no
       == W + 'c' * 32 + '&serverId=srv123', 'stored notes without a link are filled in')
 url, n = push_note({'category': 'announcements', 'title': '📣 Maintenance', 'body': 'Down at 9pm'})
 check(url.startswith('/n/') and n['links'] == {'apps': []} and not n['resolving'], 'announcement: a plain note page')
-req('POST', '/api/prefs', {'prefs': {'shows': False, 'movies': False}}, c_sam, me_sam['csrf'])
+req('POST', '/api/prefs', {'prefs': {K(SHO): False, K(MOV): False}}, c_sam, me_sam['csrf'])
+
+# libraries: classification by folder / by item, and only to people who can see that library
+import libraries  # noqa: E402
+check(libraries.for_path('/data/video/Anime/Frieren/Season 01/x.mkv') == ANI and libraries.for_path('/data/video/Animation/Bluey') == SHO
+      and libraries.for_path('/data/video/Anime') == ANI and libraries.for_path('/data/video/Animex/y') is None,
+      'content belongs to the library whose folder holds it (no name guessing)')
+check(libraries.for_item('c' * 32) == SHO and libraries.for_item('nope' * 8) is None, '... or where Jellyfin put the item')
+check([l['label'] for l in req('GET', '/api/me', cookie=c_sam)[1]['libraries']] == ['Movies', 'Shows'],
+      "Sam is only offered the libraries Sam can see")
+pushes.clear()
+st, r, _ = req('POST', '/notify', {'category': 'episodes', 'users': ['a' * 32, 'b' * 32], 'title': '📺 Frieren S2E1 is ready',
+                                   'path': '/data/video/Anime/Frieren/Season 02/e1.mkv'}, port=int_port, auth=A)
+check(r['Sam'] == {'skipped': 'no access to that library'} and r['Alex']['delivered'] == 1, 'anime episode: not sent to Sam (no access to Anime)')
+st, r, _ = req('POST', '/notify', {'category': 'requests', 'users': ['b' * 32], 'title': 'x', 'item_id': 'z' * 32}, port=int_port, auth=A)
+check(r['Sam'] == {'skipped': 'no access to that library'}, 'request ready for an Anime item: not sent to Sam either')
+st, r, _ = req('POST', '/notify', {'category': 'issues', 'users': ['b' * 32], 'title': 'x', 'item_id': 'c' * 32}, port=int_port, auth=A)
+check(r['Sam']['delivered'] == 1, 'problem fixed in Shows: sent to Sam')
+st, r, _ = req('POST', '/notify', {'category': 'announcements', 'users': ['b' * 32], 'title': 'x', 'path': '/data/video/Anime/x'},
+               port=int_port, auth=A)
+check(r['Sam']['delivered'] == 1, 'announcements are not about a library')
+ACCESS['b' * 32] = [MOV, SHO, ANI]
+check(libraries.refresh_access() == 2 and [l['label'] for l in req('GET', '/api/me', cookie=c_sam)[1]['libraries']]
+      == ['Movies', 'Shows', 'Anime'], 'access re-read from Jellyfin (every 10 min and at sign-in)')
+ACCESS['b' * 32] = [MOV, SHO]
+libraries.refresh_access()
+check(req('POST', '/notify', {'category': 'library', 'library': ANI, 'title': 'Frieren', 'item_id': 'z' * 32}, port=int_port,
+          auth=A)[1] == {'queued': 'Anime'}, 'new in Anime: queued')
+core.db().execute("update library set state='sent' where kind=?", (ANI,))
+check(req('POST', '/notify', {'category': 'library', 'library': HOME, 'title': 'Birthday'}, port=int_port, auth=A)[1]
+      == {'skipped': 'Home Videos is not a notification type'}, 'home videos are hidden unless shown in the config')
+set_conf('libraries', {'Home Videos': {'show': True, 'label': 'Family', 'emoji': '🏠', 'default': True, 'order': -1},
+                       'Anime': {'show': False}})
+me_a = req('GET', '/api/me', cookie=cookie)[1]
+check([(l['label'], l['emoji']) for l in me_a['libraries']] == [('Family', '🏠'), ('Movies', '🎬'), ('Shows', '📺')]
+      and me_a['prefs'][K(HOME)] is True and K(ANI) not in me_a['prefs'], 'per-library options: show/hide, label, emoji, default, order')
+set_conf('libraries', {})
+
+# moving the old movies / shows / anime choices to the libraries (once)
+core.db().execute("update users set prefs=? where jf_id=?", (json.dumps({'movies': True, 'anime': True, 'anime_mode': 'digest',
+                                                                          'episodes': False}), 'b' * 32))
+core.db().execute("insert into library(kind, title, ts, state) values('shows', 'Queued show', ?, 'pending')", (core.now(),))
+core.db().execute("delete from meta where k='libraries_migrated'")
+core.flush_library()
+check(core.db().execute("select count(*) from library where kind='shows' and state='pending'").fetchone()[0] == 1,
+      'queued alerts of the old kinds are kept until they are moved')
+mapping = libraries.migrate()
+p_sam = json.loads(core.get_user('b' * 32)['prefs'])
+check(mapping == {'movies': MOV, 'shows': SHO, 'anime': ANI} and p_sam == {K(MOV): True, K(ANI): True, K(ANI) + '_mode': 'digest',
+                                                                          'episodes': False},
+      'films / TV shows / anime choices moved to Movies / Shows / Anime (instant or digest kept)')
+check(core.db().execute("select count(*) from library where kind=? and title='Queued show'", (SHO,)).fetchone()[0] == 1,
+      'the queued alert moved too (sent once, not lost or doubled)')
+check(libraries.migrate() is None and json.loads(core.get_user('b' * 32)['prefs']) == p_sam, 'and it only happens once')
+core.db().execute("delete from library where title='Queued show'")
+core.db().execute("update users set prefs='{}' where jf_id=?", ('b' * 32,))
 set_conf('links.request', '')
 del config.current()['links']['recommended_apps'][0]['stores']['android']
 
@@ -716,11 +795,11 @@ check(f'<img src="/brand/{r["value"]}" alt="Flix Alerts">'.encode() in req('GET'
 set_conf('branding.wordmark.style', 'text')
 
 # switches in the config
-set_conf('notifications.types.anime.enabled', False)
-check('anime' not in req('GET', '/api/me', cookie=cookie)[1]['types'], 'a switched-off type is not offered')
-check(req('POST', '/notify', {'category': 'library', 'kind': 'anime', 'title': 'X'}, port=int_port, auth=A)[1]
-      == {'skipped': 'anime is switched off'}, 'and nothing is sent for it')
-set_conf('notifications.types.anime.enabled', True)
+set_conf('notifications.types.announcements.enabled', False)
+check('announcements' not in req('GET', '/api/me', cookie=cookie)[1]['types'], 'a switched-off type is not offered')
+check(req('POST', '/notify', {'category': 'announcements', 'title': 'X'}, port=int_port, auth=A)[1]
+      == {'skipped': 'announcements is switched off'}, 'and nothing is sent for it')
+set_conf('notifications.types.announcements.enabled', True)
 set_conf('jellyfin.sign_in.password', False)
 check(req('POST', '/api/login', {'username': 'alex', 'password': 'secret'})[0] == 403 and b'data-password=""' in req('GET', '/')[1],
       'password sign-in can be switched off')

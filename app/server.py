@@ -31,6 +31,7 @@ import approvals
 import branding
 import config
 import core
+import libraries
 import notifier
 
 ENV = config.ENV
@@ -169,6 +170,9 @@ class Public(Base):
                 'prefs': core.prefs_of(user), 'mutes': json.loads(user['mutes'] or '{}'), 'devices': subs,
                 'csrf': sess['csrf'], 'vapid_public_key': config.secret('VAPID_PUBLIC_KEY'),
                 'types': [k for k in core.PREF_TYPES if config.type_enabled(k)],
+                # "New in <library>": the shown Jellyfin libraries this person can see
+                'libraries': [{'key': libraries.key(l['id']), 'label': l['label'], 'emoji': l['emoji']}
+                              for l in libraries.visible_for(user)],
                 'installed_platforms': json.loads(user['installed'] or '[]')}
 
     # ---- GET ----
@@ -369,14 +373,19 @@ class Public(Base):
         else:
             conf = data.get('config')
 
+            drop = object()
+
             def unwrap(node, path=''):      # the form sends list / mapping fields as {'__yaml__': text}
                 if isinstance(node, dict) and set(node) == {'__yaml__'}:
+                    if not str(node['__yaml__']).strip():
+                        return drop             # emptied: back to the default
                     try:
-                        return yaml.safe_load(str(node['__yaml__'])) if str(node['__yaml__']).strip() else []
+                        return yaml.safe_load(str(node['__yaml__']))
                     except yaml.YAMLError as e:
                         raise ValueError(f'{path}: not valid YAML ({str(e).splitlines()[0]})')
                 if isinstance(node, dict):
-                    return {k: unwrap(v, f'{path}.{k}'.lstrip('.')) for k, v in node.items()}
+                    out = {k: unwrap(v, f'{path}.{k}'.lstrip('.')) for k, v in node.items()}
+                    return {k: v for k, v in out.items() if v is not drop}
                 return node
             try:
                 conf = unwrap(conf)
@@ -419,6 +428,11 @@ class Public(Base):
     def signed_in(self, res, how):
         jf_id, name, is_admin = res
         user = core.ensure_user(jf_id, name, is_admin, signed_in=True)
+        try:
+            libraries.refresh_user(jf_id)       # which libraries they can see, fresh at every sign-in
+            user = core.get_user(jf_id)
+        except Exception as e:
+            core.log('could not read library access for', name, repr(e)[:100])
         token = core.new_session(jf_id)
         core.log(f'signed in ({how}):', name)
         _, sess = core.session_user(token)
@@ -542,6 +556,8 @@ def settings_view():
             'fonts': list(config.FONTS) + branding.custom_fonts(), 'icon_dirs': branding.icon_dirs(),
             'message_vars': {k: sorted(v | config.COMMON_VARS) for k, v in config.MESSAGE_VARS.items()},
             'restart_needed': sorted(k for k in ('server',) if config.get(k) != STARTED.get(k)),
+            'jellyfin_libraries': [{k: l[k] for k in ('id', 'name', 'type', 'show', 'label', 'emoji', 'default', 'order')}
+                                   for l in (libraries.options(x, i) for i, x in enumerate(libraries.all_libraries()))],
             'secrets': {k: bool(ENV.get(k)) for k in config.SECRETS}}
 
 
