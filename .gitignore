@@ -1,0 +1,10 @@
+# secrets and local state never go in the repo
+*.env
+.env
+!.env.example
+data/
+__pycache__/
+*.pyc
+
+config/
+!config.example.yaml

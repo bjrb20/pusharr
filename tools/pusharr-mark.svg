@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Pusharr's default mark: a bell with a push arrow. Drawn for this project; public domain (CC0). -->
+  <path fill="#ffffff" d="M256 56c-17.7 0-32 14.3-32 32v11.2C160.9 113.6 116 169.2 116 236v86l-36 46v20h352v-20l-36-46v-86c0-66.8-44.9-122.4-108-136.8V88c0-17.7-14.3-32-32-32z"/>
+  <path fill="#ffffff" d="M202 412a54 54 0 0 0 108 0z"/>
+  <path fill="#3b82f6" d="M256 168l-58 66h38v74h40v-74h38z"/>
+</svg>

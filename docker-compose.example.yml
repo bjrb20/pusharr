@@ -1,0 +1,18 @@
+# Pusharr with Docker Compose. Put config.yaml in ./config and the secrets in ./pusharr.env (chmod 600).
+services:
+  pusharr:
+    image: ghcr.io/bjrb20/pusharr:latest
+    build: .
+    container_name: pusharr
+    environment:
+      - TZ=Europe/London
+      - ENV_FILE=/run/secrets/pusharr.env
+    volumes:
+      - ./pusharr.env:/run/secrets/pusharr.env:ro
+      - ./config:/config            # config.yaml and uploaded branding (writable: the settings page saves here)
+      - ./data:/data                # the database
+      # - /path/to/wizarr/database:/wizarr:ro   # only for the optional Wizarr -> Seerr sync
+    ports:
+      - 8095:8080                   # the app, for your HTTPS reverse proxy. Don't publish 8000 or 8001.
+    restart: unless-stopped
+# Sonarr, Radarr and Seerr reach the webhooks at http://pusharr:8000/... on the same Docker network.

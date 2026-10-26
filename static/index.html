@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{app}}</title>
+  <meta name="theme-color" content="{{theme_color}}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="{{short}}">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="{{icon:favicon.ico}}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{icon:favicon-32.png}}">
+  <link rel="apple-touch-icon" href="{{icon:apple-touch-180.png}}">
+  {{preloads}}
+  <link rel="stylesheet" href="/theme.css?v={{version}}">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/detect.js" defer></script>
+  <script src="/app.js" defer></script>
+  <script src="/settings.js" defer></script>
+</head>
+<body data-password="{{password}}" data-qc="{{quick_connect}}" data-app="{{app}}" data-server="{{server}}" data-request-name="{{request_name}}">
+  <header>{{wordmark}}</header>
+
+  <div id="open-app" class="banner" hidden>
+    <span>You've installed {{app}}. <b>Open the app</b> from your <span id="open-app-where">home screen</span> instead of this tab.</span>
+    <button class="link" id="open-app-close" aria-label="Hide this message">✕</button>
+  </div>
+
+  <main id="loading"><p class="muted">Loading…</p></main>
+
+  <main id="install" hidden>
+    <h2 class="install-title">Install {{app}}</h2>
+    <p>Put it on your home screen like an app, so it's always one tap away and can send you notifications.</p>
+
+    <!-- iPhone / iPad Safari -->
+    <ol class="steps" data-how="ios-safari" hidden>
+      <li><span class="num">1</span><span>Tap <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg></b> at the bottom of Safari<span class="ipad-only"> (top right on iPad)</span>, then <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Share</b>. <span class="muted">On older iPhones, tap <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></b> straight away.</span></span></li>
+      <li><span class="num">2</span><span>Scroll down and tap <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Add to Home Screen</b>. <span class="muted">Not there? Tap <b>More</b> or <b>Edit Actions</b> at the bottom of the list.</span></span></li>
+      <li><span class="num">3</span><span>Tap <b>Add</b>. Then open <b>{{app}}</b> from your home screen and sign in there.</span></li>
+    </ol>
+    <p class="muted small" data-how="ios-safari" hidden>On iPhone, notifications only work from the home-screen app (iOS 16.4 or later).</p>
+
+    <!-- iOS, but not Safari -->
+    <div data-how="ios-other" hidden>
+      <p class="warn">To install it on an iPhone or iPad, this page has to be open in <b>Safari</b>.</p>
+      <ol class="steps">
+        <li><span class="num">1</span><span>Tap <b>Copy link</b> below.</span></li>
+        <li><span class="num">2</span><span>Open <b>Safari</b>, tap the address bar, paste and go.</span></li>
+        <li><span class="num">3</span><span>Follow the steps there to add it to your home screen.</span></li>
+      </ol>
+      <p class="muted small">In some apps you can also tap <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg></b> or the compass and choose <b>Open in Safari</b>.</p>
+    </div>
+
+    <!-- Android in-app browser -->
+    <div data-how="android-inapp" hidden>
+      <p class="warn">This page is open inside another app. To install it, open it in <b>Chrome</b>.</p>
+      <ol class="steps">
+        <li><span class="num">1</span><span>Tap <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></b> and choose <b>Open in Chrome</b> (or <b>Open in browser</b>), or copy the link below and paste it into Chrome.</span></li>
+        <li><span class="num">2</span><span>In Chrome, tap <b>Install {{app}}</b>.</span></li>
+      </ol>
+    </div>
+
+    <div class="copy-row" data-how="ios-other android-inapp" hidden>
+      <input id="copy-url" readonly aria-label="Link to this page">
+      <button id="copy-btn">Copy link</button>
+    </div>
+
+    <!-- Chromium: Android and desktop -->
+    <div data-how="prompt" hidden>
+      <button id="install-btn" class="big" hidden>Install {{app}}</button>
+      <ol class="steps" id="install-fallback">
+        <li><span class="num">1</span><span class="android-only">Tap the browser menu <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></b> (top right).</span><span class="desktop-only">Click the install icon at the right of the address bar, or open the browser menu <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></b>.</span></li>
+        <li><span class="num">2</span><span>Choose <b>Install app</b> (or <b>Add to Home screen</b>), then <b>Install</b>.</span></li>
+      </ol>
+    </div>
+    <ol class="steps" data-how="firefox-android" hidden>
+      <li><span class="num">1</span><span>Tap the menu <b class="key"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></b>.</span></li>
+      <li><span class="num">2</span><span>Choose <b>Install</b> (or <b>Add to Home screen</b>).</span></li>
+    </ol>
+    <ol class="steps" data-how="mac-safari" hidden>
+      <li><span class="num">1</span><span>In the menu bar choose <b>File → Add to Dock</b>.</span></li>
+      <li><span class="num">2</span><span>Open <b>{{app}}</b> from the Dock.</span></li>
+    </ol>
+    <p data-how="none" hidden>This browser can't install apps, but notifications still work here while it's running.</p>
+
+    <p id="installed-msg" class="ok" hidden>✅ Installed. Open <b>{{app}}</b> from your home screen or app list.</p>
+    <button id="install-skip" class="link">Continue in the browser for now</button>
+    <div id="pointer" class="pointer" aria-hidden="true" hidden>
+      <svg viewBox="0 0 24 24"><path d="M12 3v16M5 12l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+  </main>
+
+  <main id="signin" hidden>
+    <p>Sign in with your <b>{{server}}</b> account.</p>
+    <form id="signin-form" autocomplete="on">
+      <label>Username <input name="username" autocomplete="username" autocapitalize="none" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Sign in</button>
+      <p class="error" id="signin-error" role="alert"></p>
+    </form>
+    <div class="or" id="signin-or"><span>or</span></div>
+    <button id="qc-start" class="secondary wide">Sign in with Quick Connect</button>
+    <div id="qc" class="card" hidden>
+      <p>Your code:</p>
+      <p class="qc-code" id="qc-code" aria-live="polite"></p>
+      <ol>
+        <li>Open {{server}} on a device where you're already signed in.</li>
+        <li>Go to your profile (top right) → <b>Quick Connect</b>.</li>
+        <li>Type this code and tap <b>Authorise</b>.</li>
+      </ol>
+      <p class="muted" id="qc-status" role="status">Waiting for you to approve it…</p>
+      <button id="qc-cancel" class="link">Cancel</button>
+    </div>
+  </main>
+
+  <main id="note" hidden>
+    <article class="note">
+      <img id="note-img" alt="" hidden>
+      <div>
+        <h2 id="note-title"></h2>
+        <p id="note-body"></p>
+        <p class="muted small" id="note-when"></p>
+      </div>
+    </article>
+    <div class="note-buttons">
+      <a id="note-watch" class="button-link big-link" target="_blank" rel="noopener noreferrer" hidden>▶ Watch on {{server}}</a>
+      <div id="note-apps" class="note-buttons-inner"></div>
+      <a id="note-request" class="button-link big-link secondary-link" target="_blank" rel="noopener noreferrer" hidden>Open in {{request_name}}</a>
+    </div>
+    <p id="note-missing" class="muted" hidden>This notification is too old or belongs to someone else.</p>
+    <a href="/" id="note-back" class="back">← {{app}}</a>
+  </main>
+
+  <main id="app" hidden>
+    <p class="hello"><span>Hi <b id="name"></b></span> <button class="link" id="signout">Sign out</button></p>
+
+    <section id="device">
+      <h2>This device</h2>
+      <div id="ios-lock" class="card" hidden>
+        <p><b>🔒 Install the app to turn on notifications.</b> On iPhone and iPad they only work from the
+          {{app}} app on your home screen.</p>
+        <button id="show-install" class="secondary">Show me how</button>
+      </div>
+      <p id="device-status" class="muted"></p>
+      <div class="row">
+        <button id="enable">Turn on notifications</button>
+        <button id="disable" class="secondary" hidden>Turn off on this device</button>
+        <button id="test" class="secondary" hidden>Send test notification</button>
+      </div>
+      <p class="muted" id="device-count"></p>
+      <p class="muted small" id="device-via" hidden></p>
+      <p class="warn small" id="device-hint" hidden>Notifications on this device open in the browser because they were
+        turned on in a browser tab. For notifications that open the app: install {{app}} with <b>Chrome</b> (or
+        Samsung Internet), open it from your home screen, sign in and turn notifications on there.</p>
+    </section>
+
+    <section id="links" hidden>
+      <h2>{{server}} links</h2>
+      <div class="link-list">
+        <a class="link-card" id="l-watch" target="_blank" rel="noopener noreferrer" hidden>
+          <span class="lc-title">▶ Watch</span><span class="lc-sub">{{server}} in your web browser</span></a>
+        <a class="link-card" id="l-request" target="_blank" rel="noopener noreferrer" hidden>
+          <span class="lc-title">+ Request</span><span class="lc-sub">Ask for films and shows in {{request_name}}. Sign in with your {{server}} login.</span></a>
+      </div>
+      <div id="l-apps"></div>
+      <div id="l-alts"></div>
+    </section>
+
+    <section>
+      <h2>Tell me about</h2>
+      <div class="toggles">
+        <label class="toggle" data-type="episodes"><input type="checkbox" data-pref="episodes"><span>New episodes of shows I'm watching</span></label>
+        <label class="toggle" data-type="requests"><input type="checkbox" data-pref="requests"><span>My requests are ready</span></label>
+        <label class="toggle" data-type="issues"><input type="checkbox" data-pref="issues"><span>Problems I reported are fixed</span></label>
+        <label class="toggle" data-type="announcements"><input type="checkbox" data-pref="announcements"><span>Announcements</span></label>
+        <div class="toggle-mode" data-type="movies">
+          <label class="toggle"><input type="checkbox" data-pref="movies"><span>New films added</span></label>
+          <select data-pref="movies_mode" aria-label="When for new films"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
+        </div>
+        <div class="toggle-mode" data-type="shows">
+          <label class="toggle"><input type="checkbox" data-pref="shows"><span>New TV shows added</span></label>
+          <select data-pref="shows_mode" aria-label="When for new TV shows"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
+        </div>
+        <div class="toggle-mode" data-type="anime">
+          <label class="toggle"><input type="checkbox" data-pref="anime"><span>New anime added</span></label>
+          <select data-pref="anime_mode" aria-label="When for new anime"><option value="instant">Straight away</option><option value="digest">{{digest_label}}</option></select>
+        </div>
+      </div>
+      <p class="muted" data-type="episodes">{{follow_text}}</p>
+    </section>
+
+    <section>
+      <h2>Muted shows</h2>
+      <p class="muted">No new-episode alerts for these.</p>
+      <form id="mute-form" class="row">
+        <input id="mute-input" list="shows" placeholder="Type a show name" aria-label="Show to mute">
+        <datalist id="shows"></datalist>
+        <button type="submit" class="secondary">Mute</button>
+      </form>
+      <ul id="mutes" class="chips"></ul>
+    </section>
+
+    <section id="pending" hidden>
+      <h2>Pending requests</h2>
+      <ul id="pending-list" class="requests"></ul>
+      <p id="pending-empty" class="muted" hidden>Nothing waiting for you.</p>
+      <div class="toggles">
+        <label class="toggle" data-type="approvals"><input type="checkbox" data-pref="approvals"><span>Notify me about new requests and problem reports (with buttons)</span></label>
+        <label class="toggle" data-type="auto_approved"><input type="checkbox" data-pref="auto_approved"><span>Also tell me about auto-approved requests</span></label>
+      </div>
+    </section>
+
+    <section id="admin" hidden>
+      <h2>Admin</h2>
+      <p><a href="/settings" class="button-link secondary-link" id="open-settings">Branding &amp; settings</a></p>
+      <form id="announce-form">
+        <label>Announcement title <input name="title" maxlength="100" required></label>
+        <label>Text <textarea name="body" maxlength="300" rows="3"></textarea></label>
+        <p class="muted">Sends to everyone with announcements on, or tick people below to send only to them.</p>
+        <button type="submit">Send announcement</button>
+        <p id="announce-result" class="muted" role="status"></p>
+      </form>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Person</th><th>Devices</th><th>Last push</th><th>On</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <main id="settings" hidden>
+    <p class="hello"><a href="/" class="back">← {{app}}</a> <button class="link" id="settings-yaml-toggle">Edit as YAML</button></p>
+    <h2 class="page-title">Branding &amp; settings</h2>
+    <p class="muted small">Saved to <code>config.yaml</code>. Secrets (API keys, push keys, webhook login) stay in the env file.
+      Most changes apply straight away; ports need a restart.</p>
+    <div id="settings-problems" class="warn" role="alert" hidden></div>
+    <p id="settings-saved" class="ok" role="status" hidden></p>
+    <form id="settings-form"></form>
+    <div id="settings-yaml" hidden>
+      <textarea id="settings-yaml-text" rows="30" spellcheck="false" aria-label="config.yaml"></textarea>
+      <div class="row"><button id="settings-yaml-check" class="secondary">Check</button><button id="settings-yaml-save">Save YAML</button></div>
+    </div>
+  </main>
+
+  <footer id="footer" hidden>
+    <a id="f-watch" target="_blank" rel="noopener noreferrer" hidden>Watch</a>
+    <a id="f-request" target="_blank" rel="noopener noreferrer" hidden>Request</a>
+    <a id="f-apps" target="_blank" rel="noopener noreferrer" hidden>Get the app</a>
+  </footer>
+</body>
+</html>

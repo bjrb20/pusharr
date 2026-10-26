@@ -1,0 +1,49 @@
+# Pusharr settings. Copy to <config folder>/config.yaml (mounted at /config) and edit, or change them
+# later on the admin "Branding & settings" page. Anything left out uses the default (see app/config.py,
+# DEFAULTS). Secrets (API keys, push keys, webhook login) go in the env file, not here: see .env.example.
+
+public_url: https://alerts.example.org          # where people open the app (behind your HTTPS reverse proxy)
+timezone: Europe/London                         # for the daily digest and log times
+
+branding:
+  app_name: Pusharr
+  short_name: Pusharr
+  server_name: Jellyfin                         # your media server as people know it: "Tracker S4E4 is ready on Jellyfin"
+  # theme: colours (see the settings page for all of them)
+  # fonts: {body: inter, wordmark: inter}       # inter, bebas-neue, system, or custom:<uploaded file>
+  # wordmark: {style: text, text: PUSHARR, subtitle: Alerts}
+  # icon_dir: ''                                # '' = the bundled icon; upload an SVG on the settings page to replace it
+
+jellyfin:
+  url: http://jellyfin:8096                     # as Pusharr reaches it
+  public_url: https://jellyfin.example.org      # as people reach it (links and posters)
+  sign_in: {password: true, quick_connect: true}
+
+links:
+  watch: https://jellyfin.example.org           # "Watch" link
+  request: https://requests.example.org         # "Request" link (Seerr / Jellyseerr / Overseerr)
+  request_name: Seerr
+  recommended_apps: []
+  #  - name: Some App
+  #    description: Watch on your phone, tablet, computer or TV.
+  #    stores: {ios: 'https://...', android: 'https://...', windows: 'https://...', android_tv: 'https://...', other: 'https://...'}
+  #    play: {movie: 'someapp://play?tmdb={tmdb}', show: 'someapp://play?tvdb={tvdb}'}   # optional deep links
+  #    play_on: [android, ios]                  # where those deep links work
+  alternative_apps:
+    - name: Jellyfin apps
+      url: https://jellyfin.org/downloads/clients
+      text: Prefer something else? The official {link} work too.
+
+integrations:                                   # each needs its API key in the env file
+  seerr: {enabled: true, url: 'http://seerr:5055'}
+  sonarr: {enabled: true, url: 'http://sonarr:8989'}
+  radarr: {enabled: true, url: 'http://radarr:7878'}
+  bazarr: {enabled: false, url: 'http://bazarr:6767'}
+  wizarr: {enabled: false, database: /wizarr/database.db}
+
+notifications:
+  digest_hour: 19
+  # types: {movies: {enabled: true, default: false}, ...}   # what people can turn on, and what's on for new people
+
+approvals:
+  approvers: admins                             # Jellyfin administrators, or a list of usernames: [alex, sam]
