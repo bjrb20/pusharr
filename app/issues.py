@@ -35,6 +35,7 @@ import urllib.parse, urllib.request
 import approvals
 import config
 import core
+import releases
 
 N = None  # the notifier module (http, log, send), set by notifier.py
 
@@ -190,6 +191,10 @@ def on_seerr(payload):
     if kind == 'TEST_NOTIFICATION':
         N.log('Seerr test webhook received')
         return 'ok'
+    if kind in ('MEDIA_APPROVED', 'MEDIA_AUTO_APPROVED') and config.get('integrations.radarr.enabled'):
+        releases.on_approved(payload)       # a film that isn't out yet: tell the requester when to expect it
+    if kind == 'MEDIA_APPROVED':
+        return 'release check queued'
     if kind in ('MEDIA_PENDING', 'MEDIA_AUTO_APPROVED'):
         threading.Thread(target=guard, args=(request_event, payload, kind), daemon=True).start()
         return 'request event queued'

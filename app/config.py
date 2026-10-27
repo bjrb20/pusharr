@@ -177,6 +177,20 @@ DEFAULTS = {
         'issue_expired': {'title': 'Expired: {title}', 'body': 'No answer within {hours} h; nothing was changed.'},
         'test': {'title': '🔔 {app} test', 'body': 'Hi {user}, notifications work on this device.'},
         'user_joined': {'title': '👋 {user} joined {server}', 'body': '{how}'},
+        'release_cinemas': {'title': '🎬 {title} is still in cinemas',
+                            'body': "It's out {how} on {date}, and {server} will grab it then. We'll let you know when it's ready."},
+        'release_cinemas_nodate': {'title': '🎬 {title} is still in cinemas',
+                                   'body': "It isn't out digitally yet. {server} will grab it as soon as it is, and we'll let "
+                                           "you know when it's ready."},
+        'release_upcoming': {'title': "🎬 {title} isn't out yet",
+                             'body': "It's out {how} on {date}, and {server} will grab it then. We'll let you know when it's ready."},
+        'release_upcoming_nodate': {'title': "🎬 {title} isn't out yet",
+                                    'body': "It has no release date yet. {server} will grab it as soon as it's out, and we'll "
+                                            "let you know when it's ready."},
+        'release_date_changed': {'title': '📅 New date for {title}',
+                                 'body': "It's now out {how} on {date} (was {old}). We'll let you know when it's ready."},
+        'release_date_removed': {'title': '📅 {title} has no release date now',
+                                 'body': "It was due on {old}. We'll let you know when it's ready on {server}."},
         'announcement': {'title': '📣 {title}', 'body': '{body}'},
     },
 }
@@ -196,6 +210,9 @@ MESSAGE_VARS = {
     'issue_no_copy': {'title', 'rules', 'hours', 'days'}, 'issue_failed': {'title'}, 'issue_stalled': {'title', 'days'},
     'issue_expired': {'title', 'hours'}, 'test': {'user'}, 'announcement': {'title', 'body'},
     'user_joined': {'user', 'how', 'invite'},
+    'release_cinemas': {'title', 'date', 'how'}, 'release_cinemas_nodate': {'title'},
+    'release_upcoming': {'title', 'date', 'how'}, 'release_upcoming_nodate': {'title'},
+    'release_date_changed': {'title', 'date', 'old', 'how'}, 'release_date_removed': {'title', 'old'},
 }
 COMMON_VARS = {'server', 'app', 'request_name'}
 

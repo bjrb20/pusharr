@@ -33,6 +33,7 @@ import core
 import issues
 import joins
 import libraries
+import releases
 
 DATA_DIR = os.environ.get('DATA_DIR', '/data')
 log = core.log
@@ -602,10 +603,11 @@ def parse_eps(s):
 
 def setup():
     """Wire the notifier modules together (shared by the server and the CLI)."""
-    issues.N = contacts.N = joins.N = sys.modules[__name__]
+    issues.N = contacts.N = joins.N = releases.N = sys.modules[__name__]
     core.init_db()
     approvals.init_db()
     joins.init_db()
+    releases.init_db()
     core.db().execute('''create table if not exists pending_alerts (
         id integer primary key, kind text not null, key text unique, data text not null, created integer not null,
         next_check integer not null, checks integer not null default 0, refreshed integer not null default 0)''')
@@ -625,6 +627,8 @@ def start():
     threading.Thread(target=ready_worker, daemon=True).start()
     if config.get('integrations.seerr.enabled'):
         issues.start()
+        if config.get('integrations.radarr.enabled'):
+            releases.start()        # films approved before they're out: watch for date changes
     contacts.start()
     if config.get('integrations.sonarr.enabled'):
         try:

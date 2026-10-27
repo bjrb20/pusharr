@@ -292,6 +292,56 @@ time.sleep(0.3)
 check(released and released[0][1]['title'] == 'Other' and not notifier.waiting(), 'switched off: sent straight away')
 notifier.release, notifier.http = real_release, real_http
 
+# ---------- approved films that aren't out yet ----------
+import datetime as dt_  # noqa: E402
+import releases  # noqa: E402
+T = dt_.date(2026, 10, 27)
+ODY = {'title': 'The Odyssey', 'year': 2026, 'tmdbId': 1368337, 'status': 'inCinemas', 'hasFile': False,
+       'inCinemas': '2026-07-15T00:00:00Z', 'digitalRelease': '2026-11-17T00:00:00Z', 'physicalRelease': '2026-11-17T00:00:00Z'}
+check(releases.message(ODY, T)[0] == ('🎬 The Odyssey is still in cinemas',
+                                       "It's out digitally on 17 Nov, and Flix will grab it then. We'll let you know when it's ready."),
+      'in cinemas, digital date known (UK date, no year when it is this year)')
+check(releases.message(dict(ODY, digitalRelease='2027-02-03T00:00:00Z'), T)[0][1].startswith("It's out digitally on 3 Feb 2027"),
+      'a date next year shows the year')
+check(releases.message(dict(ODY, digitalRelease=None, physicalRelease='2026-12-01T00:00:00Z'), T)[0][1]
+      .startswith("It's out on disc on 1 Dec"), 'no digital date: the disc date')
+check(releases.message(dict(ODY, digitalRelease=None, physicalRelease=None), T)[0] == (
+      '🎬 The Odyssey is still in cinemas', "It isn't out digitally yet. Flix will grab it as soon as it is, and we'll let you "
+      "know when it's ready."), 'no date at all: says it is not out digitally yet')
+check(releases.message(dict(ODY, status='announced', inCinemas='2026-12-20T00:00:00Z', digitalRelease='2027-03-01T00:00:00Z'), T)[0][0]
+      == "🎬 The Odyssey isn't out yet", 'not in cinemas yet either')
+check(releases.not_out(ODY, T) and not releases.not_out(dict(ODY, digitalRelease='2026-10-01T00:00:00Z'), T)
+      and not releases.not_out(dict(ODY, hasFile=True), T), 'out digitally already, or downloaded: nothing to say')
+sent_r, RAD = [], {'movie': None}
+releases.seerr_request = lambda rid: {'type': 'movie', 'media': {'tmdbId': 1368337},
+                                      'requestedBy': {'displayName': 'Sam', 'jellyfinUserId': 'b' * 32}}
+releases.radarr_movie = lambda tmdb: RAD['movie']
+real_send = notifier.send
+notifier.send = lambda jf_id, title, body, tag, **kw: sent_r.append((jf_id, title, body, kw.get('category'))) or {'delivered': 1}
+looks = []
+releases.radarr_movie = lambda tmdb: looks.append(1) or (ODY if len(looks) >= 2 else None)
+check(releases.check_request(3, tries=3, gap=0) == 'told' and len(looks) == 2 and sent_r[0][0] == 'b' * 32
+      and sent_r[0][1] == '🎬 The Odyssey is still in cinemas' and sent_r[0][3] == 'requests',
+      'after approval: waits for Seerr to add the film to Radarr, then tells the requester')
+check(releases.check_request(3, tries=1, gap=0) == 'already told' and len(sent_r) == 1, 'only once per request')
+releases.radarr_movie = lambda tmdb: dict(ODY, digitalRelease='2026-10-01T00:00:00Z')
+check(releases.check_request(4, tries=1, gap=0) == 'out already' and len(sent_r) == 1, 'a film that is out already: no message')
+releases.radarr_movie = lambda tmdb: ODY
+releases.watch_tick(T)
+check(len(sent_r) == 1, 'same date: no update')
+releases.radarr_movie = lambda tmdb: dict(ODY, digitalRelease='2026-11-24T00:00:00Z')
+releases.watch_tick(T)
+check(sent_r[-1][1:3] == ('📅 New date for The Odyssey', "It's now out digitally on 24 Nov (was 17 Nov). We'll let you know when it's ready."),
+      'the date moves: a short update')
+releases.radarr_movie = lambda tmdb: dict(ODY, hasFile=True)
+releases.watch_tick(T)
+check(core.db().execute('select done from release_watch where request_id=3').fetchone()[0] == 1 and len(sent_r) == 2,
+      'downloaded: the watch stops (the usual "ready" alert takes over)')
+notifier.send = real_send
+releases.seerr_request = lambda rid: {'type': 'tv', 'media': {'tmdbId': 1}, 'requestedBy': {}}
+check(post(hook + '/seerr', {'notification_type': 'MEDIA_APPROVED', 'request_id': '99', 'media': {'media_type': 'movie'}})
+      == (200, 'release check queued'), 'Seerr "request approved" webhook starts the check')
+
 # ---------- picker rules come from the config ----------
 check(A(rel('Film.2026.1080p.WEB.GERMAN.DL', langs=('German',)))[0] is False, 'German-only rejected while English is wanted')
 config.current()['approvals']['picker']['languages'] = ['German']

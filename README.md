@@ -162,6 +162,9 @@ point `branding.icon_dir` at it.
   - After 10 minutes it asks Jellyfin to scan the new files or refresh the item.
   - After 6 hours it sends anyway.
   - `notifier.py waiting` lists what's held.
+- **Approved, but not out yet:** when a film request is approved and Radarr says the film isn't out to
+  download (still in cinemas, say), the requester is told the digital (else disc) release date. They
+  get a short update if the date moves. Seerr's webhook needs *Request Approved* ticked.
 - **Someone new joins (admins):** a new Jellyfin account (checked every minute) alerts admins.
   - **The alert:** who joined and which Wizarr invite they used, from Wizarr's database.
   - **Faster option:** point Wizarr's ntfy notification agent at `http://pusharr:8000/wizarr`, with

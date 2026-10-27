@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0 (2026-10-27)
+
+- **Approved films that aren't out yet:** when Seerr approves a film request (by an approver, or by
+  itself) and Radarr says the film can't be downloaded yet, the requester hears when to expect it.
+  - **Example:** "🎬 The Odyssey is still in cinemas / It's out digitally on 17 Nov, and Jellyfin will
+    grab it then. We'll let you know when it's ready."
+  - **Which date:** Radarr's digital release, else its disc release, in UK format. Without a date, the
+    message says it isn't out digitally yet.
+  - **Date changes:** the film is watched every 6 hours, and a short update goes out if the date moves.
+  - **When it lands:** the usual "ready to watch" alert still comes.
+  - **Seerr setup:** its webhook needs *Request Approved* ticked as well.
+  - **Wording:** templates `release_*` in `messages`.
+
 ## 1.3.0 (2026-10-27)
 
 - **"Someone new joins" alert for admins** (notification type `joins`, on by default for admins).
