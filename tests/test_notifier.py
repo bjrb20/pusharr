@@ -321,21 +321,49 @@ notifier.send = lambda jf_id, title, body, tag, **kw: sent_r.append((jf_id, titl
 looks = []
 releases.radarr_movie = lambda tmdb: looks.append(1) or (ODY if len(looks) >= 2 else None)
 check(releases.check_request(3, tries=3, gap=0) == 'told' and len(looks) == 2 and sent_r[0][0] == 'b' * 32
-      and sent_r[0][1] == '🎬 The Odyssey is still in cinemas' and sent_r[0][3] == 'requests',
-      'after approval: waits for Seerr to add the film to Radarr, then tells the requester')
+      and sent_r[0][1:3] == ('✅ The Odyssey approved', "It's out digitally on 17 Nov, and Flix will grab it then. We'll let you "
+                             "know when it's ready.") and sent_r[0][3] == 'approved',
+      'approved, not out yet: ONE message (approved + when to expect it), after Seerr adds the film to Radarr')
 check(releases.check_request(3, tries=1, gap=0) == 'already told' and len(sent_r) == 1, 'only once per request')
+releases.seerr_request = lambda rid: {'type': 'movie', 'media': {'tmdbId': 1368337}, 'modifiedBy': {'id': 1, 'displayName': 'Alex'},
+                                      'requestedBy': {'id': 1, 'displayName': 'Alex', 'jellyfinUserId': 'a' * 32}}
+check(releases.check_request(30, tries=1, gap=0) == 'told' and sent_r[-1][1] == '🎬 The Odyssey is still in cinemas'
+      and sent_r[-1][3] == 'requests', 'an admin who approved their own request: just the release date, no "approved"')
+releases.seerr_request = lambda rid: {'type': 'movie', 'media': {'tmdbId': 1368337},
+                                      'requestedBy': {'id': 2, 'displayName': 'Sam', 'jellyfinUserId': 'b' * 32}}
 releases.radarr_movie = lambda tmdb: dict(ODY, digitalRelease='2026-10-01T00:00:00Z')
-check(releases.check_request(4, tries=1, gap=0) == 'out already' and len(sent_r) == 1, 'a film that is out already: no message')
+releases.seerr_request = lambda rid: {'type': 'movie', 'media': {'tmdbId': 1368337}, 'modifiedBy': {'id': 1, 'displayName': 'Ben'},
+                                      'requestedBy': {'id': 2, 'displayName': 'Sam', 'jellyfinUserId': 'b' * 32}}
+n0 = len(sent_r)
+check(releases.check_request(4, tries=1, gap=0) == 'told' and sent_r[-1][1:4] == (
+      '✅ Ben approved The Odyssey', "We'll let you know when it's ready on Flix.", 'approved'), 'film out already: "Ben approved The Odyssey"')
+releases.seerr_request = lambda rid: {'type': 'tv', 'media': {'tmdbId': 1399, 'tvdbId': 121361}, 'seasons': [{'seasonNumber': 1}, {'seasonNumber': 2}],
+                                      'modifiedBy': {'id': 1, 'displayName': 'Ben'}, 'requestedBy': {'id': 2, 'jellyfinUserId': 'b' * 32}}
+releases_what = releases.what_of
+releases.what_of = lambda r, rid=None: 'Game of Thrones seasons 1, 2'
+check(releases.check_request(5, tries=1, gap=0) == 'told' and sent_r[-1][1] == '✅ Ben approved Game of Thrones seasons 1, 2',
+      'a show: approved, with its seasons (no Radarr wait)')
+check(releases.check_request(5, tries=1, gap=0) == 'already told', '... once')
+check(releases.declined(6, 'Already on Netflix') == 'told' and sent_r[-1][1:4] == (
+      "❌ Your request for Game of Thrones seasons 1, 2 wasn't approved", 'Already on Netflix', 'declined'), 'declined, with the reason')
+check(releases.declined(6) == 'already told', "Seerr's decline webhook after a decline on the Pending page: not told twice")
+check(releases.declined(7) == 'told' and sent_r[-1][2] == 'Ask an admin if you want to know why.', 'declined in Seerr: no reason there')
+releases.seerr_request = lambda rid: {'type': 'tv', 'media': {}, 'modifiedBy': {'id': 2}, 'requestedBy': {'id': 2, 'jellyfinUserId': 'b' * 32}}
+check(releases.check_request(8, tries=1, gap=0) == 'approved by the requester' and releases.declined(8) == 'declined by the requester',
+      'their own approval / decline: no alert')
+releases.what_of = releases_what
+check(len(sent_r) == n0 + 4, 'exactly one alert per outcome')
 releases.radarr_movie = lambda tmdb: ODY
+del sent_r[1:]
 releases.watch_tick(T)
 check(len(sent_r) == 1, 'same date: no update')
 releases.radarr_movie = lambda tmdb: dict(ODY, digitalRelease='2026-11-24T00:00:00Z')
 releases.watch_tick(T)
-check(sent_r[-1][1:3] == ('📅 New date for The Odyssey', "It's now out digitally on 24 Nov (was 17 Nov). We'll let you know when it's ready."),
-      'the date moves: a short update')
+check(sent_r[-1][1:3] == ('📅 New date for The Odyssey', "It's now out digitally on 24 Nov (was 17 Nov). We'll let you know when it's ready.")
+      and {x[0] for x in sent_r[1:]} == {'a' * 32, 'b' * 32}, 'the date moves: a short update to each requester waiting for it')
 releases.radarr_movie = lambda tmdb: dict(ODY, hasFile=True)
 releases.watch_tick(T)
-check(core.db().execute('select done from release_watch where request_id=3').fetchone()[0] == 1 and len(sent_r) == 2,
+check(core.db().execute('select done from release_watch where request_id=3').fetchone()[0] == 1 and len(sent_r) == 3,
       'downloaded: the watch stops (the usual "ready" alert takes over)')
 notifier.send = real_send
 releases.seerr_request = lambda rid: {'type': 'tv', 'media': {'tmdbId': 1}, 'requestedBy': {}}

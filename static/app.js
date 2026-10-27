@@ -231,7 +231,8 @@ async function renderAdmin() {
   $('#admin').hidden = !state.user.is_admin;
   if (!state.user.is_admin) return;
   const users = await api('/api/admin/users');
-  const labels = { episodes: 'eps', requests: 'req', issues: 'fix', announcements: 'news', joins: 'joins' };
+  const labels = { episodes: 'eps', approved: 'ok', declined: 'no', requests: 'req', issues: 'fix', announcements: 'news',
+    joins: 'joins' };
   for (const lib of state.libraries || []) labels[lib.key] = lib.label.toLowerCase();
   $('#users').replaceChildren(...users.map((u) => {
     const tr = document.createElement('tr');

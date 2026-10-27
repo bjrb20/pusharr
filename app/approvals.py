@@ -100,13 +100,14 @@ def decide(request_id, action, reason=''):
         raise
     outcome = 'approved' if action == 'approve' else 'declined'
     core.log(f'request #{request_id} {outcome}:', label(d), 'from', d['by'])
-    if outcome == 'declined' and d.get('by_jf'):
-        # Seerr has no decline reason, so tell the requester ourselves (they can switch this off)
-        u = core.ensure_user(d['by_jf'])
-        if u:
-            title, body = config.msg('request_declined', what=label(d),
-                                     reason=reason.strip()[:200] or config.msg('request_declined_no_reason'))
-            core.deliver(u, 'requests', core.payload_for(title, body, tag=f"request-{request_id}"))
+    if outcome == 'declined':
+        # Seerr has no decline reason, so the requester hears it from us now (Seerr's own decline webhook
+        # that follows finds it already told)
+        try:
+            import releases
+            releases.declined(int(request_id), reason)
+        except Exception as e:
+            core.log(f'request #{request_id}: could not tell the requester', repr(e)[:150])
     replace_notifications(request_id, outcome, d)
     return outcome, d
 

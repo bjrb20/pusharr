@@ -98,6 +98,8 @@ DEFAULTS = {
             'requests': {'enabled': True, 'default': True},
             'issues': {'enabled': True, 'default': True},
             'announcements': {'enabled': True, 'default': True},
+            'approved': {'enabled': True, 'default': True},       # my requests are approved
+            'declined': {'enabled': True, 'default': True},       # my requests are declined
             'approvals': {'enabled': True, 'default': True},
             'auto_approved': {'enabled': True, 'default': False},
             # someone new joins (e.g. a Wizarr invite); who: admins, approvers, everyone or a list of usernames
@@ -149,7 +151,11 @@ DEFAULTS = {
         'progress_next': "You're up to {furthest}.",
         'progress_behind': "You're up to {furthest}, {behind} episodes behind.",
         'request_ready': {'title': '🍿 {what} is ready to watch on {server}', 'body': 'The thing you requested is ready to watch.'},
-        'request_declined': {'title': 'Request declined: {what}', 'body': '{reason}'},
+        'request_declined': {'title': "❌ Your request for {what} wasn't approved", 'body': '{reason}'},
+        'request_approved': {'title': '✅ {what} approved', 'body': "We'll let you know when it's ready on {server}."},
+        'request_approved_by': {'title': '✅ {approver} approved {what}',
+                                'body': "We'll let you know when it's ready on {server}."},
+        'request_approved_release': {'title': '✅ {title} approved', 'body': ''},
         'request_declined_no_reason': 'Ask an admin if you want to know why.',
         'request_pending': {'title': '🎬 New request from {user}: {what}', 'body': 'Tap to see pending requests.'},
         'request_auto': {'title': '✅ Auto-approved: {user} requested: {what}', 'body': 'No action needed.'},
@@ -201,7 +207,8 @@ MESSAGE_VARS = {
     'episode_many': {'series', 'count', 'first', 'last', 'progress', 'user'},
     'progress_not_started': set(), 'progress_next': {'furthest'}, 'progress_behind': {'furthest', 'behind'},
     'request_ready': {'what', 'title', 'user'}, 'request_declined': {'what', 'reason'},
-    'request_declined_no_reason': set(), 'request_pending': {'what', 'user'}, 'request_auto': {'what', 'user'},
+    'request_declined_no_reason': set(), 'request_approved': {'what'}, 'request_approved_by': {'what', 'approver'},
+    'request_approved_release': {'title'}, 'request_pending': {'what', 'user'}, 'request_auto': {'what', 'user'},
     'library_one': {'library', 'emoji', 'title'}, 'library_many': {'count', 'library', 'emoji', 'titles'},
     'digest': {'summary'},
     'issue_approval': {'kind', 'title', 'said', 'user'}, 'issue_unsupported': {'kind', 'title', 'said', 'why', 'user'},

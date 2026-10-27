@@ -191,10 +191,12 @@ def on_seerr(payload):
     if kind == 'TEST_NOTIFICATION':
         N.log('Seerr test webhook received')
         return 'ok'
-    if kind in ('MEDIA_APPROVED', 'MEDIA_AUTO_APPROVED') and config.get('integrations.radarr.enabled'):
-        releases.on_approved(payload)       # a film that isn't out yet: tell the requester when to expect it
+    if kind in ('MEDIA_APPROVED', 'MEDIA_AUTO_APPROVED'):
+        releases.on_approved(payload)       # tell the requester (with the release date for a film not out yet)
     if kind == 'MEDIA_APPROVED':
         return 'release check queued'
+    if kind == 'MEDIA_DECLINED':
+        return releases.on_declined(payload)
     if kind in ('MEDIA_PENDING', 'MEDIA_AUTO_APPROVED'):
         threading.Thread(target=guard, args=(request_event, payload, kind), daemon=True).start()
         return 'request event queued'

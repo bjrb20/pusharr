@@ -637,9 +637,9 @@ check(req('POST', '/api/admin/requests/decide', {'id': 8, 'action': 'decline'}, 
 check(req('POST', '/api/admin/requests/decide', {'id': 8, 'action': 'decline'}, cookie)[0] == 403, 'deciding needs CSRF')
 pushes.clear()
 st, r, _ = req('POST', '/api/admin/requests/decide', {'id': 8, 'action': 'decline', 'reason': 'Already on Netflix'}, cookie, csrf)
-sam_msgs = [p['msg'] for p in pushes if 'msg' in p and p['msg']['title'].startswith('Request declined')]
-check(r['outcome'] == 'declined' and SEERR[8]['status'] == 3 and sam_msgs and sam_msgs[0]['body'] == 'Already on Netflix',
-      'decline from the page, reason sent to the requester')
+sam_msgs = [p['msg'] for p in pushes if 'msg' in p and p['msg']['title'].startswith('❌ Your request for')]
+check(r['outcome'] == 'declined' and SEERR[8]['status'] == 3 and sam_msgs and sam_msgs[0]['body'] == 'Already on Netflix'
+      and "Game of Thrones season" in sam_msgs[0]['title'], 'decline from the page, reason sent to the requester')
 pushes.clear()
 st, r, _ = req('POST', '/request-event', {'request_id': 9, 'kind': 'auto'}, port=int_port, auth=A)
 check(r == {'Alex': {'skipped': 'auto_approved off'}} and not pushes, 'auto-approved info is off by default')

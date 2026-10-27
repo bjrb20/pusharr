@@ -16,7 +16,8 @@
   };
   const TYPE_LABELS = {
     episodes: 'New episodes', requests: 'Requests ready', issues: 'Reported problems fixed', announcements: 'Announcements',
-    approvals: 'Approvals (approvers)', joins: 'Someone new joins',
+    approvals: 'Approvals (approvers)', joins: 'Someone new joins', approved: 'My requests are approved',
+    declined: 'My requests are declined',
     auto_approved: 'Auto-approved requests (approvers)',
   };
 

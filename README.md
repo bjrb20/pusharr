@@ -37,7 +37,7 @@ file, or on the admin's **Branding & settings** page.
    - Sonarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/sonarr`
    - Radarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/radarr`
    - Seerr → Settings → Notifications → Webhook: `http://pusharr:8000/seerr`. Types: *Request
-     Pending Approval*, *Request Approved*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
+     Pending Approval*, *Request Approved*, *Request Declined*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
 6. **Sign in** as a Jellyfin administrator and open **Admin → Branding & settings** to make it yours.
 
 Until the image is published, build it yourself: `docker build -t ghcr.io/bjrb20/pusharr .`
@@ -162,6 +162,9 @@ point `branding.icon_dir` at it.
   - After 10 minutes it asks Jellyfin to scan the new files or refresh the item.
   - After 6 hours it sends anyway.
   - `notifier.py waiting` lists what's held.
+- **Approved / declined:** requesters hear when their request is approved ("✅ Ben approved The Odyssey";
+  not for their own approvals) or declined (with the reason given on the Pending page; Seerr has no
+  decline reason of its own).
 - **Approved, but not out yet:** when a film request is approved and Radarr says the film isn't out to
   download (still in cinemas, say), the requester is told the digital (else disc) release date. They
   get a short update if the date moves. Seerr's webhook needs *Request Approved* ticked.

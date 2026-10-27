@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0 (2026-10-27)
+
+- **Request approved** (notification type `approved`, on by default).
+  - **The alert:** "✅ Ben approved The Odyssey / We'll let you know when it's ready on Jellyfin."
+  - **A film that isn't out yet** gets one message: "✅ The Odyssey approved" with the "still in
+    cinemas, out digitally on 17 Nov" text.
+  - **Self-approval:** nobody is told about a request they approved themselves (admins requesting for
+    themselves, or auto-approval by their own permission). They still get a film's release date.
+- **Request declined** (type `declined`, on by default): "❌ Your request for X wasn't approved", with the
+  reason given on Pusharr's Pending page. Seerr itself has no decline reason, so declines made in Seerr
+  say to ask an admin. The decline made on the Pending page and Seerr's webhook that follows send one
+  alert, not two.
+- **Seerr setup:** its webhook needs *Request Declined* ticked too.
+
 ## 1.4.0 (2026-10-27)
 
 - **Approved films that aren't out yet:** when Seerr approves a film request (by an approver, or by

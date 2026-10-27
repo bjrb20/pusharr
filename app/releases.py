@@ -1,4 +1,12 @@
-"""Approved film requests that aren't out yet: tell the requester when to expect them.
+"""Telling requesters what happened to their Seerr request: approved (notification type `approved`),
+declined (`declined`, with the reason given on Pusharr's Pending page), and, for an approved film that
+isn't out yet, when to expect it (folded into the approved message, so it's one alert).
+
+Nobody is told that a request they approved themselves was approved (admins requesting for themselves,
+or requests auto-approved by the requester's own permission); they still hear a film's release date.
+Seerr has no decline reason of its own, so declines made in Seerr come without one.
+
+Approved films that aren't out yet: tell the requester when to expect them.
 
 When Seerr approves a film request (by an approver, or by itself) and Radarr says the film isn't out to
 download yet (still in cinemas, or not released at all), the requester gets e.g.
@@ -27,9 +35,43 @@ def init_db():
     core.db().execute('''create table if not exists release_watch (
         request_id integer primary key, tmdb integer, jf_id text, title text, date text, how text,
         created integer, done integer)''')
+    core.db().execute('''create table if not exists request_alerts (
+        request_id integer, kind text, ts integer, primary key (request_id, kind))''')
+
+
+def claim(rid, kind):
+    """True the first time (request, approved / declined) is claimed: each is told once."""
+    init_db()
+    return core.db().execute('insert or ignore into request_alerts(request_id, kind, ts) values(?,?,?)',
+                             (int(rid), kind, core.now())).rowcount == 1
+
+
+def what_of(r, rid=None):
+    """The film's title, or the show with its seasons."""
+    import approvals
+    d = approvals.describe(dict(r, id=r.get('id', rid)))
+    if r.get('type') == 'movie':
+        return d['title']
+    seasons = sorted(s['seasonNumber'] for s in r.get('seasons') or [])
+    return d['title'] + (f" season{'s' if len(seasons) > 1 else ''} {', '.join(map(str, seasons))}" if seasons else '')
+
+
+def self_approved(r):
+    """The requester approved it themselves (or it was auto-approved by their own permission)."""
+    by, who = r.get('modifiedBy') or {}, r.get('requestedBy') or {}
+    return bool(by.get('id')) and by.get('id') == who.get('id')
+
+
+def notifier():
+    global N
+    if N is None:           # called from the web server's Pending page before the notifier is set up
+        import notifier as n
+        N = n
+    return N
 
 
 def seerr_request(rid):
+    notifier()
     return N.http('GET', N.url('seerr') + f'/api/v1/request/{int(rid)}',
                   headers={'X-Api-Key': config.secret('SEERR_API_KEY', '')})
 
@@ -76,10 +118,18 @@ def message(m, today=None):
 def on_approved(payload):
     """Seerr approved a request (MEDIA_APPROVED / MEDIA_AUTO_APPROVED): queue the check (in a thread)."""
     rid = payload.get('request_id')
-    if not rid or (payload.get('media') or {}).get('media_type') not in (None, '', 'movie'):
-        return 'not a film request'
+    if not rid:
+        return 'no request id'
     threading.Thread(target=guard, args=(check_request, int(rid)), daemon=True).start()
     return 'release check queued'
+
+
+def on_declined(payload):
+    rid = payload.get('request_id')
+    if not rid:
+        return 'no request id'
+    threading.Thread(target=guard, args=(declined, int(rid)), daemon=True).start()
+    return 'decline queued'
 
 
 def guard(fn, *a):
@@ -90,32 +140,68 @@ def guard(fn, *a):
 
 
 def check_request(rid, tries=FIND_TRIES, gap=FIND_GAP):
-    """After approval: find the film in Radarr; if it isn't out yet, tell the requester and start watching."""
+    """After approval: tell the requester it's approved (unless they approved it themselves); for a film
+    that isn't out yet, the same message says when to expect it, and the film is watched for date changes."""
     if core.db().execute('select 1 from release_watch where request_id=?', (rid,)).fetchone():
         return 'already told'
     r = seerr_request(rid)
     media, who = r.get('media') or {}, r.get('requestedBy') or {}
-    if r.get('type') != 'movie' or not media.get('tmdbId'):
-        return 'not a film request'
+    jf_id, mine = who.get('jellyfinUserId'), self_approved(r)
+    kind = 'movie' if r.get('type') == 'movie' else 'show'
+    ids = {'type': kind, 'tmdb': media.get('tmdbId'), 'tvdb': media.get('tvdbId')}
     m = None
-    for i in range(tries):
-        m = radarr_movie(media['tmdbId'])
-        if m:
-            break
-        time.sleep(gap)
-    if not m:
-        core.log(f'request #{rid}: film not in Radarr after {tries} looks; no release-date alert')
-        return 'not in Radarr'
-    if not not_out(m):
-        return 'out already'
-    (title, body), d, how = message(m)
-    jf_id = who.get('jellyfinUserId')
-    core.db().execute('insert or ignore into release_watch(request_id, tmdb, jf_id, title, date, how, created, done) '
-                      'values(?,?,?,?,?,?,?,0)', (rid, media['tmdbId'], jf_id, m['title'],
-                                                   d.isoformat() if d else None, how, core.now()))
-    res = N.send(jf_id, title, body, f'request-{rid}', category='requests', person=who.get('displayName'),
-                 ids={'type': 'movie', 'tmdb': media['tmdbId']}) if jf_id else 'no Jellyfin user'
-    core.log(f'request #{rid}: {m["title"]} not out yet ({d or "no date"}) ->', json.dumps(res))
+    if kind == 'movie' and media.get('tmdbId') and config.get('integrations.radarr.enabled'):
+        for i in range(tries):
+            m = radarr_movie(media['tmdbId'])
+            if m:
+                break
+            time.sleep(gap)
+        if not m:
+            core.log(f'request #{rid}: film not in Radarr after {tries} looks; no release date')
+    if m and not_out(m):
+        (title, body), d, how = message(m)
+        if not mine:
+            title = config.msg('request_approved_release', title=m['title'])[0]
+        if not mine and not claim(rid, 'approved'):
+            return 'already told'
+        core.db().execute('insert or ignore into release_watch(request_id, tmdb, jf_id, title, date, how, created, done) '
+                          'values(?,?,?,?,?,?,?,0)', (rid, media['tmdbId'], jf_id, m['title'],
+                                                       d.isoformat() if d else None, how, core.now()))
+        res = N.send(jf_id, title, body, f'request-{rid}', category='requests' if mine else 'approved',
+                     person=who.get('displayName'), ids=ids) if jf_id else 'no Jellyfin user'
+        core.log(f'request #{rid}: {m["title"]} approved, not out yet ({d or "no date"}) ->', json.dumps(res))
+        return 'told'
+    if mine:
+        return 'approved by the requester'
+    if not claim(rid, 'approved'):
+        return 'already told'
+    by = (r.get('modifiedBy') or {}).get('displayName')
+    what = m['title'] if m else what_of(r, rid)
+    title, body = config.msg('request_approved_by', approver=by, what=what) if by else config.msg('request_approved', what=what)
+    res = N.send(jf_id, title, body, f'request-{rid}', category='approved', person=who.get('displayName'),
+                 ids=ids) if jf_id else 'no Jellyfin user'
+    core.log(f'request #{rid}: approved ->', json.dumps(res))
+    return 'told'
+
+
+def declined(rid, reason=''):
+    """Tell the requester their request wasn't approved, with the reason if one was given (once)."""
+    notifier()
+    r = seerr_request(rid)
+    who = r.get('requestedBy') or {}
+    by = r.get('modifiedBy') or {}
+    if by and by.get('id') == who.get('id'):
+        return 'declined by the requester'
+    if not claim(rid, 'declined'):
+        return 'already told'
+    media = r.get('media') or {}
+    title, body = config.msg('request_declined', what=what_of(r, rid),
+                             reason=(reason or '').strip()[:200] or config.msg('request_declined_no_reason'))
+    res = N.send(who.get('jellyfinUserId'), title, body, f'request-{rid}', category='declined',
+                 person=who.get('displayName'),
+                 ids={'type': 'movie' if r.get('type') == 'movie' else 'show', 'tmdb': media.get('tmdbId'),
+                      'tvdb': media.get('tvdbId')}) if who.get('jellyfinUserId') else 'no Jellyfin user'
+    core.log(f'request #{rid}: declined ->', json.dumps(res))
     return 'told'
 
 
