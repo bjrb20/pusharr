@@ -37,7 +37,7 @@ file, or on the admin's **Branding & settings** page.
    - Sonarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/sonarr`
    - Radarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/radarr`
    - Seerr → Settings → Notifications → Webhook: `http://pusharr:8000/seerr`. Types: *Request
-     Pending Approval*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
+     Pending Approval*, *Request Approved*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
 6. **Sign in** as a Jellyfin administrator and open **Admin → Branding & settings** to make it yours.
 
 Until the image is published, build it yourself: `docker build -t ghcr.io/bjrb20/pusharr .`
