@@ -16,7 +16,7 @@
   };
   const TYPE_LABELS = {
     episodes: 'New episodes', requests: 'Requests ready', issues: 'Reported problems fixed', announcements: 'Announcements',
-    approvals: 'Approvals (approvers)',
+    approvals: 'Approvals (approvers)', joins: 'Someone new joins',
     auto_approved: 'Auto-approved requests (approvers)',
   };
 
@@ -70,6 +70,7 @@
           [`notifications.types.${k}.enabled`, `${TYPE_LABELS[k] || k}: offered`, 'bool'],
           [`notifications.types.${k}.default`, `${TYPE_LABELS[k] || k}: on for new people`, 'bool'],
         ]),
+        ['notifications.types.joins.who', 'Who can get "someone new joins": admins, approvers, everyone, or a YAML list of usernames', 'yaml'],
         ['notifications.digest_hour', 'Daily digest at (hour, 0–23)', 'number'],
         ['notifications.batching.import_wait', 'Wait after an import before telling people (seconds)', 'number'],
         ['notifications.batching.library_wait', 'New films/shows: wait before sending (seconds)', 'number'],

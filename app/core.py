@@ -26,7 +26,7 @@ import config
 ENV = config.ENV
 DATA_DIR = ENV.get('DATA_DIR', '/data')
 
-PREF_TYPES = ('episodes', 'requests', 'issues', 'announcements', 'approvals', 'auto_approved')
+PREF_TYPES = ('episodes', 'requests', 'issues', 'announcements', 'approvals', 'auto_approved', 'joins')
 CATEGORIES = {'episodes', 'requests', 'issues', 'announcements', 'library', 'test'}
 
 

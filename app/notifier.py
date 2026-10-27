@@ -31,6 +31,7 @@ import config
 import contacts
 import core
 import issues
+import joins
 import libraries
 
 DATA_DIR = os.environ.get('DATA_DIR', '/data')
@@ -47,7 +48,7 @@ def url(app):
 
 
 def webhooks_wanted():
-    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr'))
+    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr', 'wizarr'))
 
 
 def http(method, url, body=None, headers=None, timeout=30):
@@ -553,7 +554,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, 'ok') if self.path == '/health' else self.reply(404, 'not found')
 
     def do_POST(self):
-        if self.path not in ('/sonarr', '/seerr', '/radarr'):
+        if self.path not in ('/sonarr', '/seerr', '/radarr', '/wizarr'):
             return self.reply(404, 'not found')
         want = 'Basic ' + base64.b64encode(f"{ENV.get('WEBHOOK_USER', '')}:{ENV.get('WEBHOOK_PASSWORD', '')}".encode()).decode()
         if not (ENV.get('WEBHOOK_USER') and ENV.get('WEBHOOK_PASSWORD')):
@@ -563,8 +564,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, f'{app} is switched off')
         if not hmac.compare_digest(self.headers.get('Authorization', ''), want):
             return self.reply(401, 'unauthorized')
+        raw = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        if self.path == '/wizarr':      # Wizarr's ntfy agent: plain text "User X has joined your server!"
+            log('Wizarr says:', raw.decode('utf-8', 'replace')[:120])
+            return self.reply(200, joins.on_wizarr(raw.decode('utf-8', 'replace')))
         try:
-            payload = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b'{}')
+            payload = json.loads(raw or b'{}')
         except ValueError:
             return self.reply(400, 'bad json')
         if self.path == '/seerr':
@@ -597,9 +602,10 @@ def parse_eps(s):
 
 def setup():
     """Wire the notifier modules together (shared by the server and the CLI)."""
-    issues.N = contacts.N = sys.modules[__name__]
+    issues.N = contacts.N = joins.N = sys.modules[__name__]
     core.init_db()
     approvals.init_db()
+    joins.init_db()
     core.db().execute('''create table if not exists pending_alerts (
         id integer primary key, kind text not null, key text unique, data text not null, created integer not null,
         next_check integer not null, checks integer not null default 0, refreshed integer not null default 0)''')
@@ -608,6 +614,7 @@ def setup():
 def start():
     """Started by server.py: webhooks on server.webhook_port, the issue worker, contact sync."""
     setup()
+    joins.start()               # new Jellyfin accounts (Wizarr invites) -> admins
     if not webhooks_wanted():
         log('Seerr, Sonarr and Radarr are all switched off: no webhooks')
         return None

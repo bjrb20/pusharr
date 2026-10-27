@@ -97,6 +97,11 @@ check(post(hook + '/sonarr', {'eventType': 'Test'}, auth='Basic ' + base64.b64en
 check(post(hook + '/sonarr', {'eventType': 'Test'}) == (200, 'ok'), 'Sonarr test button answered')
 check(post(hook + '/radarr', {'eventType': 'Test'}) == (200, 'ok'), 'Radarr test button answered')
 check(post(hook + '/seerr', {'notification_type': 'TEST_NOTIFICATION'}) == (200, 'ok'), 'Seerr test button answered')
+req_ = urllib.request.Request(hook + '/wizarr', data='User newbie has joined your server! 🎉'.encode(),
+                              headers={'Authorization': AUTH, 'Title': 'New User'})
+with urllib.request.urlopen(req_, timeout=10) as r_:
+    check(r_.status == 200 and r_.read() == b'checking', "Wizarr's ntfy agent (plain text) makes the new-account check run at once")
+check(post(hook + '/wizarr', {}, auth=None)[0] == 401, '... with the webhook login')
 check(post(hook + '/sonarr', {'eventType': 'Download', 'isUpgrade': True, 'series': {'title': 'Tracker'}})[1] == 'ignored upgrade',
       'upgrades ignored')
 calls.clear()

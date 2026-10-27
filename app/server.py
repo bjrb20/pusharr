@@ -31,6 +31,7 @@ import approvals
 import branding
 import config
 import core
+import joins
 import libraries
 import notifier
 
@@ -169,7 +170,8 @@ class Public(Base):
                          'is_approver': core.is_approver(user)},
                 'prefs': core.prefs_of(user), 'mutes': json.loads(user['mutes'] or '{}'), 'devices': subs,
                 'csrf': sess['csrf'], 'vapid_public_key': config.secret('VAPID_PUBLIC_KEY'),
-                'types': [k for k in core.PREF_TYPES if config.type_enabled(k)],
+                'types': [k for k in core.PREF_TYPES if config.type_enabled(k)
+                          and (k != 'joins' or joins.eligible(user))],     # new accounts: admins (by default)
                 # "New in <library>": the shown Jellyfin libraries this person can see
                 'libraries': [{'key': libraries.key(l['id']), 'label': l['label'], 'emoji': l['emoji']}
                               for l in libraries.visible_for(user)],

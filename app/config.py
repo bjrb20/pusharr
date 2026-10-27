@@ -100,6 +100,8 @@ DEFAULTS = {
             'announcements': {'enabled': True, 'default': True},
             'approvals': {'enabled': True, 'default': True},
             'auto_approved': {'enabled': True, 'default': False},
+            # someone new joins (e.g. a Wizarr invite); who: admins, approvers, everyone or a list of usernames
+            'joins': {'enabled': True, 'default': True, 'who': 'admins'},
         },
         'digest_hour': 19,
         'batching': {'import_wait': 180, 'library_wait': 60, 'library_burst_limit': 5, 'library_burst_window': 600},
@@ -174,6 +176,7 @@ DEFAULTS = {
                                   'Radarr/Sonarr queue.'},
         'issue_expired': {'title': 'Expired: {title}', 'body': 'No answer within {hours} h; nothing was changed.'},
         'test': {'title': '🔔 {app} test', 'body': 'Hi {user}, notifications work on this device.'},
+        'user_joined': {'title': '👋 {user} joined {server}', 'body': '{how}'},
         'announcement': {'title': '📣 {title}', 'body': '{body}'},
     },
 }
@@ -192,6 +195,7 @@ MESSAGE_VARS = {
     'issue_fixed': {'title'}, 'subtitles_fixed': {'title'}, 'issue_replaced': {'title', 'release'},
     'issue_no_copy': {'title', 'rules', 'hours', 'days'}, 'issue_failed': {'title'}, 'issue_stalled': {'title', 'days'},
     'issue_expired': {'title', 'hours'}, 'test': {'user'}, 'announcement': {'title', 'body'},
+    'user_joined': {'user', 'how', 'invite'},
 }
 COMMON_VARS = {'server', 'app', 'request_name'}
 
@@ -334,7 +338,7 @@ def _check_types(conf, defaults, path, problems):
         elif isinstance(d, int):
             if isinstance(v, bool) or not isinstance(v, int):
                 problems.append(f'{p}: should be a whole number')
-        elif isinstance(d, str) and k != 'approvers':
+        elif isinstance(d, str) and k not in ('approvers', 'who'):
             if not isinstance(v, str):
                 problems.append(f'{p}: should be text')
         elif isinstance(d, list):
@@ -465,6 +469,9 @@ def validate(conf):
                 problems.append(f'{p}.{k}: should be text')
         if 'order' in o and (isinstance(o['order'], bool) or not isinstance(o['order'], int)):
             problems.append(f'{p}.order: should be a whole number')
+    who = n['types']['joins']['who']
+    if not (who in ('admins', 'approvers', 'everyone') or (isinstance(who, list) and all(isinstance(x, str) and x for x in who))):
+        problems.append("notifications.types.joins.who: admins, approvers, everyone or a list of usernames")
     a = conf['approvals']
     if not (a['approvers'] == 'admins' or (isinstance(a['approvers'], list)
                                            and all(isinstance(x, str) and x for x in a['approvers']))):

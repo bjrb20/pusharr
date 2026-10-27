@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0 (2026-10-27)
+
+- **"Someone new joins" alert for admins** (notification type `joins`, on by default for admins).
+  - **What it says:** who joined and which Wizarr invite they used (e.g. "👋 Sam joined Jellyfin /
+    Used Wizarr invite ABC123 (made 2026-10-20).").
+  - **How joins are noticed:** in Jellyfin itself, by checking the user list every minute. Wizarr's
+    own notification agents only say "User X has joined", so the invite comes from its database (the
+    read-only copy the contact sync reads).
+  - **Faster option:** pointing Wizarr's ntfy agent at `http://pusharr:8000/wizarr` (webhook login)
+    makes the check run at once.
+  - **Existing accounts** never cause an alert.
+  - **Who can have the toggle:** set `notifications.types.joins.who` to `admins`, `approvers`,
+    `everyone` or a list of usernames.
+
 ## 1.2.0 (2026-10-27)
 
 - **"New in <library>" alerts from your Jellyfin libraries** replace the fixed films / TV shows / anime

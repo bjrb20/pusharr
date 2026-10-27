@@ -162,6 +162,11 @@ point `branding.icon_dir` at it.
   - After 10 minutes it asks Jellyfin to scan the new files or refresh the item.
   - After 6 hours it sends anyway.
   - `notifier.py waiting` lists what's held.
+- **Someone new joins (admins):** a new Jellyfin account (checked every minute) alerts admins.
+  - **The alert:** who joined and which Wizarr invite they used, from Wizarr's database.
+  - **Faster option:** point Wizarr's ntfy notification agent at `http://pusharr:8000/wizarr`, with
+    the webhook login, to make the check run at once.
+  - **Who gets it:** `notifications.types.joins.who` (admins by default).
 - **New in <library>:** Radarr imports and a series' first file, filed under the Jellyfin library
   whose folder holds them (else wherever Jellyfin put the item). More than
   `library_burst_limit` of a kind within `library_burst_window` (a big library import, say) are sent as

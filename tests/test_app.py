@@ -808,6 +808,50 @@ set_conf('jellyfin.sign_in.quick_connect', False)
 check(req('POST', '/api/qc/start', {})[0] == 403, 'Quick Connect can be switched off')
 set_conf('jellyfin.sign_in.quick_connect', True)
 
+# new accounts (e.g. a Wizarr invite) -> admins
+import joins, sqlite3  # noqa: E402
+wdb = os.path.join(tmp, 'wizarr.db')
+w = sqlite3.connect(wdb)
+w.executescript('''create table user (id integer primary key, username text, email text, code text, created_at text);
+                   create table invitation (id integer primary key, code text, created text, expires text, unlimited integer);
+                   create table invitation_user (invite_id integer, user_id integer);''')
+w.commit()
+set_conf('integrations.wizarr', {'enabled': True, 'database': wdb, 'sync_minutes': 15})
+joins.init_db()
+check(joins.check(1000) == [], 'first look only notes the existing accounts (no alerts for them)')
+USERS['newbie'] = ('n' * 32, 'x', False)
+w.execute("insert into user(username, email, code, created_at) values('newbie', 'n@example.org', 'ABC123', '2026-10-27 09:00')")
+w.execute("insert into invitation(id, code, created, expires, unlimited) values(1, 'ABC123', '2026-10-20 12:00', null, 0)")
+w.commit()
+pushes.clear()
+check(joins.check(1060) == ['Newbie'], 'a new Jellyfin account is noticed')
+got = [p['msg'] for p in pushes if 'msg' in p]
+check(len(got) == 1 and got[0]['title'] == '👋 Newbie joined Flix' and got[0]['body'] == 'Used Wizarr invite ABC123 (made 2026-10-20).'
+      and 'n@example.org' not in json.dumps(got), 'admins get who joined and which invite (no email address)')
+check(core.db().execute("select count(*) from sent_log where category='joins' and jf_id=?", ('b' * 32,)).fetchone()[0] == 0,
+      'Sam (not an admin) gets nothing')
+check(joins.check(1120) == [], '... and only once')
+USERS['late'] = ('l' * 32, 'x', False)
+check(joins.check(1180) == [], 'no Wizarr record yet: wait for it (Wizarr writes it just after the account)')
+pushes.clear()
+check(joins.check(1320) == ['Late'] and pushes[0]['msg']['body'] == 'New account in Jellyfin (not through a Wizarr invite).',
+      'still none after 2 minutes: sent anyway, saying so')
+check('joins' in req('GET', '/api/me', cookie=cookie)[1]['types'] and 'joins' not in req('GET', '/api/me', cookie=c2)[1]['types'],
+      'the toggle is only offered to admins')
+req('POST', '/api/prefs', {'prefs': {'joins': False}}, cookie, csrf)
+USERS['third'] = ('t' * 32, 'x', False)
+w.execute("insert into user(username, code, created_at) values('third', 'ZZZ', '2026-10-27')")
+w.commit()
+pushes.clear()
+joins.check(1400)
+check(not pushes, 'switched off: no alert')
+req('POST', '/api/prefs', {'prefs': {'joins': True}}, cookie, csrf)
+set_conf('notifications.types.joins.who', 'everyone')
+check('joins' in req('GET', '/api/me', cookie=c2)[1]['types'], 'can be offered to everyone (notifications.types.joins.who)')
+set_conf('notifications.types.joins.who', 'admins')
+for k in ('newbie', 'late', 'third'):
+    USERS.pop(k)
+
 # sessions
 st, _, hd = req('POST', '/api/logout', {}, cookie, csrf)
 check('Max-Age=0' in hd['Set-Cookie'] and req('GET', '/api/me', cookie=cookie)[0] == 401, 'sign-out ends the session')
