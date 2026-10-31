@@ -516,6 +516,12 @@ set_conf('libraries', {'Home Videos': {'show': True, 'label': 'Family', 'emoji':
 me_a = req('GET', '/api/me', cookie=cookie)[1]
 check([(l['label'], l['emoji']) for l in me_a['libraries']] == [('Family', '🏠'), ('Movies', '🎬'), ('Shows', '📺')]
       and me_a['prefs'][K(HOME)] is True and K(ANI) not in me_a['prefs'], 'per-library options: show/hide, label, emoji, default, order')
+set_conf('libraries', {'Shows': {'who': ['alex']}})
+check([l['label'] for l in req('GET', '/api/me', cookie=c_sam)[1]['libraries']] == ['Movies']
+      and 'Shows' in [l['label'] for l in req('GET', '/api/me', cookie=cookie)[1]['libraries']],
+      'a library limited to some people (who) is only offered to them, even if others can open it')
+st, r, _ = req('POST', '/notify', {'category': 'issues', 'users': ['b' * 32], 'title': 'x', 'item_id': 'c' * 32}, port=int_port, auth=A)
+check(r['Sam'] == {'skipped': 'no access to that library'}, '... and nothing about its content reaches the others')
 set_conf('libraries', {})
 
 # moving the old movies / shows / anime choices to the libraries (once)

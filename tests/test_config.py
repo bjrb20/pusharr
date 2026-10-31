@@ -103,6 +103,7 @@ cases = [
     ({'libraries': {'Movies': {'colour': 'red'}}}, 'libraries.Movies: unknown key(s) colour'),
     ({'libraries': {'Movies': 'hide'}}, 'libraries.Movies: should be a mapping'),
     ({'libraries': {'Movies': {'order': 'first'}}}, 'libraries.Movies.order: should be a whole number'),
+    ({'libraries': {'Music': {'who': 'friends'}}}, 'libraries.Music.who: admins, approvers, everyone or a list of usernames'),
     ({'messages': {'library_one': {'title': 'New {kind}'}}}, 'messages.library_one.title: unknown variable(s) {kind}'),
     ({'links': {'recommended_apps': [{'name': 'X', 'play': {'item': 'x://play?tmdb={tmdb}'}}]}},
      'links.recommended_apps[0].play.item: unknown variable(s) tmdb'),
@@ -115,6 +116,8 @@ for over, want in cases:
 check(problems_for({'approvals': {'approvers': ['alex', 'sam']}}) == [], 'approvers can be a list of usernames')
 check(problems_for({'libraries': {'Home Videos': {'show': True, 'label': 'Family', 'emoji': '🏠', 'default': True, 'order': 1}}}) == [],
       'per-library options')
+check(problems_for({'libraries': {'Music': {'show': True, 'who': ['ben']}}, 'integrations': {'lidarr': {'enabled': True}}}) == [],
+      'a library can be limited to some people (who), and Lidarr switched on')
 write('notifications: {types: {movies: {enabled: false}, anime: {default: true}, episodes: {default: false}}}\n')
 check(config.load() == [] and config.get('notifications.types.episodes.default') is False
       and 'movies' not in config.get('notifications.types'), 'old movies / shows / anime types in a config file are dropped quietly')

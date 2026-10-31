@@ -36,6 +36,7 @@ file, or on the admin's **Branding & settings** page.
 5. **Webhooks** (internal Docker network only; basic auth = `WEBHOOK_USER` / `WEBHOOK_PASSWORD`):
    - Sonarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/sonarr`
    - Radarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/radarr`
+   - Lidarr (optional, music) → Settings → Connect → Webhook, *On Release Import*: `http://pusharr:8000/lidarr`
    - Seerr → Settings → Notifications → Webhook: `http://pusharr:8000/seerr`. Types: *Request
      Pending Approval*, *Request Approved*, *Request Declined*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
 6. **Sign in** as a Jellyfin administrator and open **Admin → Branding & settings** to make it yours.
@@ -65,8 +66,8 @@ need a restart.
 | `links` | **Watch** and **Request** links; templates for one item (`watch_item`, `request_item`) and the library (`watch_home`). `recommended_apps`: per-platform store links (`ios`, `android`, `windows`, `android_tv`, `other`), optional deep links (`play.movie` / `play.show` / `play.show_tmdb` with `{tmdb}` `{tvdb}`) and where they work (`play_on`). `alternative_apps`, and a "Get the app" override. |
 | `messages` | The title and text of every notification, with variables such as `{series}` `{episode}` `{count}` `{user}` `{what}` `{server}` `{app}`. The settings page lists which ones each message can use. |
 | `notifications` | Per type (`episodes`, `requests`, `issues`, `announcements`, `movies`, `shows`, `anime`, `approvals`, `auto_approved`): `enabled` (offered at all) and `default` (on for new people). `digest_hour`, `timezone`, batching thresholds. Follow rules: `recent_watch_days`, `caught_up`, `watchlist`, `requested`. |
-| `libraries` | "New in <library>" alerts come from your Jellyfin libraries. Per library (by name or id): `show` (default: yes, except home videos, music, collections, photos, books), `label`, `emoji`, `default` (on for new people) and `order`. People only see, and only get alerts about, libraries they can open in Jellyfin. |
-| `integrations` | `seerr` (Seerr, Jellyseerr or Overseerr), `sonarr`, `radarr`, `bazarr` (subtitle problem reports, with a language), `wizarr` (optional Wizarr → Seerr user sync). Each has `enabled` and a URL; the API keys go in the env file. |
+| `libraries` | "New in <library>" alerts come from your Jellyfin libraries. Per library (by name or id): `show` (default: yes, except home videos, music, collections, photos, books), `label`, `emoji`, `default` (on for new people), `order` and `who` (`admins`, `approvers`, `everyone` or a list of usernames). People only see, and only get alerts about, libraries they can open in Jellyfin (and that `who` lets them have). |
+| `integrations` | `seerr` (Seerr, Jellyseerr or Overseerr), `sonarr`, `radarr`, `lidarr` (new albums; webhook only, no API key), `bazarr` (subtitle problem reports, with a language), `wizarr` (optional Wizarr → Seerr user sync). Each has `enabled` and a URL; the API keys go in the env file. |
 | `approvals` | `approvers`: `admins` (Jellyfin administrators) or a list of usernames. Token and expiry times. The replacement picker's rules: wanted audio languages, whether the original language is accepted, and patterns that reject dubs, hard-coded subtitles and camera copies, plus minimum sizes. |
 | `server`, `session` | Ports, how long people stay signed in, and the session cookie name. |
 

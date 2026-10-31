@@ -42,11 +42,13 @@ links:
 libraries: {}
 #  Home Videos: {show: true, label: Family, emoji: '🏠'}
 #  Anime: {emoji: '🍥', order: 3}
+#  Music: {show: true, who: [alex]}             # only these people get "New in Music"
 
 integrations:                                   # each needs its API key in the env file
   seerr: {enabled: true, url: 'http://seerr:5055'}
   sonarr: {enabled: true, url: 'http://sonarr:8989'}
   radarr: {enabled: true, url: 'http://radarr:7878'}
+  lidarr: {enabled: false}                      # music: webhook only (see the README)
   bazarr: {enabled: false, url: 'http://bazarr:6767'}
   wizarr: {enabled: false, database: /wizarr/database.db}
 

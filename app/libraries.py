@@ -4,8 +4,8 @@
   for 10 minutes. Each shown library is a notification type; its preference keys are lib_<id> (on/off)
   and lib_<id>_mode (instant / digest).
 - config.yaml `libraries:` sets per-library options, keyed by library name (or id): show, label, emoji,
-  default (on for new people), order. Home videos, music, collections and the like are hidden unless
-  shown there.
+  default (on for new people), order, who (admins, approvers, everyone or a list of usernames: only they
+  get the type at all). Home videos, music, collections and the like are hidden unless shown there.
 - New content belongs to the library whose folder holds its file (Sonarr's and Radarr's paths are
   Jellyfin's), else to the library its Jellyfin item sits in.
 - Access: Jellyfin admins and "all libraries" users see everything; others their enabled libraries.
@@ -19,7 +19,7 @@ import config
 import core
 
 HIDDEN_TYPES = {'homevideos', 'music', 'boxsets', 'photos', 'books', 'playlists', 'livetv', 'folders', 'musicvideos'}
-EMOJI = {'movies': '🎬', 'tvshows': '📺'}
+EMOJI = {'movies': '🎬', 'tvshows': '📺', 'music': '🎵'}
 LEGACY = ('movies', 'shows', 'anime')      # the old fixed kinds, migrated to libraries
 REFRESH = 600
 
@@ -61,7 +61,8 @@ def options(lib, index=0):
             'label': o.get('label') or lib['name'],
             'emoji': o.get('emoji') or EMOJI.get(lib['type'], '🎞️'),
             'default': bool(o.get('default', False)),
-            'order': o.get('order', index)}
+            'order': o.get('order', index),
+            'who': o.get('who')}
 
 
 def visible():
@@ -168,16 +169,19 @@ def access_of(user):
 
 
 def can_see(user, lib_id):
-    """Whether this person can see content in that library (unknown library: yes)."""
+    """Whether this person can see content in that library (unknown library: yes), and its `who` lets them."""
     if not lib_id:
         return True
+    info = by_id(lib_id)
+    if info and not core.who_allows(user, info['who']):
+        return False
     access = access_of(user)
     return access == '*' or lib_id in access
 
 
 def visible_for(user):
     access = access_of(user)
-    return [l for l in visible() if access == '*' or l['id'] in access]
+    return [l for l in visible() if (access == '*' or l['id'] in access) and core.who_allows(user, l['who'])]
 
 
 # ---------- moving the old movies / shows / anime choices to libraries ----------

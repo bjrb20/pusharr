@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.0 (2026-10-31)
+
+- **Music:** Lidarr's webhook (`/lidarr`, *On Release Import*) announces new albums in their Jellyfin
+  library, e.g. "🎵 New in Music / Skepta – Konnichiwa".
+  - **When:** the alert waits until Jellyfin has the album with its cover (albums have no overview).
+    After `refresh_after`, Jellyfin is told about the new files, as it already is for films.
+  - **Not announced:** upgrades (e.g. MP3 to FLAC).
+  - **Setup:** `integrations.lidarr.enabled: true`, and show the music library
+    (`libraries: {Music: {show: true}}`). It's hidden by default.
+- **Per-library `who`:** a library can be limited to some people (`admins`, `approvers`, `everyone` or a
+  list of usernames). Only they are offered its toggle, and only they get alerts about its content,
+  even if others can open it in Jellyfin.
+
 ## 1.5.0 (2026-10-27)
 
 - **Request approved** (notification type `approved`, on by default).

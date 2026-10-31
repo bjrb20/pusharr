@@ -1,4 +1,4 @@
-"""The notifier part of Pusharr: Sonarr / Radarr / Seerr webhooks on their own internal port
+"""The notifier part of Pusharr: Sonarr / Radarr / Lidarr / Seerr webhooks on their own internal port
 (server.webhook_port, 8000; never published), new-episode decisions, new films/shows, request events and
 the issue-replacement flow (issues.py), plus the optional Wizarr -> Seerr contact sync (contacts.py).
 
@@ -14,6 +14,9 @@ Someone qualifies for a series if any of these hold (each can be switched off in
 and they haven't already played the new episode(s).
 
 State (what's been sent, issue records, series that already had files) is in the app's SQLite DB.
+
+Lidarr (Connect -> Webhook, On Release Import) POSTs to /lidarr: a new album is announced in its library
+("New in Music") once Jellyfin has it with its cover.
 
   python app/notifier.py dry-run --tvdb 428433 --episodes S04E01,S04E02   # who would be told, and why
   python app/notifier.py dry-run --payload sonarr.json
@@ -49,7 +52,7 @@ def url(app):
 
 
 def webhooks_wanted():
-    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr', 'wizarr'))
+    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr', 'lidarr', 'wizarr'))
 
 
 def http(method, url, body=None, headers=None, timeout=30):
@@ -379,6 +382,42 @@ def send_movie(p, info=None):
     alert_library(library, p['title'], item, {'type': 'movie', 'tmdb': p['tmdb'], 'item': item})
 
 
+def album_folder(payload):
+    """The album's folder: the one folder all its imported files are in (Lidarr's paths are Jellyfin's)."""
+    dirs = {os.path.dirname(f['path']) for f in payload.get('trackFiles') or [] if f.get('path')}
+    if len(dirs) > 1:       # multi-disc albums: CD 1/, CD 2/ under the album folder
+        dirs = {os.path.commonpath(sorted(dirs))}
+    return next(iter(dirs), None)
+
+
+def lidarr_import(payload):
+    """An album imported for the first time (not an upgrade): alert once Jellyfin has it, with its cover."""
+    artist, album = payload.get('artist') or {}, payload.get('album') or {}
+    title = ' – '.join(x for x in (artist.get('name'), album.get('title')) if x) or 'New music'
+    folder = album_folder(payload)
+    paths = [f['path'] for f in payload.get('trackFiles') or [] if f.get('path')]
+    hold('album', f"album:{album.get('mbId') or album.get('id') or title}",
+         {'title': title, 'mbid': album.get('mbId'), 'folder': folder, 'paths': paths[:50],
+          'library': libraries.for_path(folder or artist.get('path'))})
+    return f'new album {title}: alert once Jellyfin has it'
+
+
+def find_album(mbid, folder=None):
+    """The Jellyfin album by MusicBrainz release group (Lidarr's album id), else by its folder."""
+    items = jf('/Items?IncludeItemTypes=MusicAlbum&Recursive=true&Fields=ProviderIds,Path&enableImages=false')['Items']
+    return (next((i for i in items if mbid and (i.get('ProviderIds') or {}).get('MusicBrainzReleaseGroup') == mbid), None)
+            or (next((i for i in items if same_path(i.get('Path'), folder)), None) if folder else None))
+
+
+def send_album(p, info=None):
+    item = (info or {}).get('item')
+    if not item:
+        a = find_album(p.get('mbid'), p.get('folder'))
+        item = a['Id'] if a else None
+    library = p.get('library') or libraries.for_path(p.get('folder')) or libraries.for_item(item)
+    alert_library(library, p['title'], item, {'type': 'album', 'item': item} if item else None)
+
+
 # ---------- holding alerts until the content is really ready ----------
 #
 # Sonarr / Radarr say "imported" before Jellyfin has scanned the file and fetched its title, overview and
@@ -392,7 +431,7 @@ def wait_conf():
 
 
 def hold(kind, key, data):
-    """Queue an alert (kind: episodes / movie / request) until its content is ready."""
+    """Queue an alert (kind: episodes / movie / album / request) until its content is ready."""
     if not wait_conf()['enabled']:
         threading.Thread(target=release, args=(kind, data, None), daemon=True).start()
         return 'sending now'
@@ -429,6 +468,13 @@ def jf_item(item_id):
 
 def check(kind, p):
     """(ready, info, what's missing). info: Jellyfin ids found so far."""
+    if kind == 'album':         # albums have no overview: a title and a cover are enough
+        a = find_album(p.get('mbid'), p.get('folder'))
+        if not a:
+            return False, {}, 'album not in Jellyfin yet'
+        item = jf_item(a['Id'])
+        ready = bool(item and item.get('Name') and (item.get('ImageTags') or {}).get('Primary'))
+        return ready, {'item': a['Id']}, '' if ready else 'album has no cover yet'
     if kind == 'movie' or (kind == 'request' and p.get('media_type') == 'movie'):
         m = find_movie(p['tmdb'], (p.get('paths') or [None])[0])
         if not m:
@@ -488,6 +534,8 @@ def release(kind, p, info):
         send_episodes(p, info)
     elif kind == 'movie':
         send_movie(p, info)
+    elif kind == 'album':
+        send_album(p, info)
     elif kind == 'request':
         issues.guard(issues.request_ready, p['payload'], (info or {}).get('item') or (info or {}).get('series'))
 
@@ -555,7 +603,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, 'ok') if self.path == '/health' else self.reply(404, 'not found')
 
     def do_POST(self):
-        if self.path not in ('/sonarr', '/seerr', '/radarr', '/wizarr'):
+        if self.path not in ('/sonarr', '/seerr', '/radarr', '/lidarr', '/wizarr'):
             return self.reply(404, 'not found')
         want = 'Basic ' + base64.b64encode(f"{ENV.get('WEBHOOK_USER', '')}:{ENV.get('WEBHOOK_PASSWORD', '')}".encode()).decode()
         if not (ENV.get('WEBHOOK_USER') and ENV.get('WEBHOOK_PASSWORD')):
@@ -579,6 +627,12 @@ class Handler(BaseHTTPRequestHandler):
         if ev == 'Test':
             log(f'{self.path[1:].title()} test webhook received')
             return self.reply(200, 'ok')
+        if self.path == '/lidarr':
+            if ev != 'Download' or payload.get('isUpgrade'):
+                return self.reply(200, f"ignored {'upgrade' if payload.get('isUpgrade') else ev}")
+            msg = lidarr_import(payload)
+            log(msg)
+            return self.reply(200, msg)
         if self.path == '/radarr':
             if ev != 'Download' or payload.get('isUpgrade') or payload.get('deletedFiles'):
                 return self.reply(200, f'ignored {ev}')
@@ -618,7 +672,7 @@ def start():
     setup()
     joins.start()               # new Jellyfin accounts (Wizarr invites) -> admins
     if not webhooks_wanted():
-        log('Seerr, Sonarr and Radarr are all switched off: no webhooks')
+        log('Seerr, Sonarr, Radarr and Lidarr are all switched off: no webhooks')
         return None
     srv = ThreadingHTTPServer(('0.0.0.0', config.get('server.webhook_port')), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

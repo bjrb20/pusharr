@@ -116,12 +116,15 @@ DEFAULTS = {
     },
     # "New in <library>" alerts come from the Jellyfin libraries. Per library (by name or id):
     #   show (default: yes, except home videos, music, collections, photos, books...), label, emoji,
-    #   default (on for new people; default no), order (position in the list)
+    #   default (on for new people; default no), order (position in the list),
+    #   who (who may have it at all: admins, approvers, everyone or a list of usernames; default everyone
+    #   who can open the library in Jellyfin)
     'libraries': {},
     'integrations': {
         'seerr': {'enabled': True, 'url': 'http://seerr:5055'},
         'sonarr': {'enabled': True, 'url': 'http://sonarr:8989'},
         'radarr': {'enabled': True, 'url': 'http://radarr:7878'},
+        'lidarr': {'enabled': False, 'url': 'http://lidarr:8686'},     # music: "New in <music library>" on import
         'bazarr': {'enabled': False, 'url': 'http://bazarr:6767', 'language': 'en', 'language_name': 'English'},
         'wizarr': {'enabled': False, 'database': '/wizarr/database.db', 'sync_minutes': 15},
     },
@@ -370,6 +373,10 @@ def _check_types(conf, defaults, path, problems):
                 problems.append(f'{p}: should be a list')
 
 
+def who_ok(who):
+    return who in ('admins', 'approvers', 'everyone') or (isinstance(who, list) and all(isinstance(x, str) and x for x in who))
+
+
 def _url(v, https=True):
     return v == '' or (isinstance(v, str) and re.match(r'https://' if https else r'https?://', v) is not None)
 
@@ -480,9 +487,9 @@ def validate(conf):
     for name, o in conf['libraries'].items():
         p = f'libraries.{name}'
         if not isinstance(o, dict):
-            problems.append(f'{p}: should be a mapping (show, label, emoji, default, order)')
+            problems.append(f'{p}: should be a mapping (show, label, emoji, default, order, who)')
             continue
-        unknown = set(o) - {'show', 'label', 'emoji', 'default', 'order'}
+        unknown = set(o) - {'show', 'label', 'emoji', 'default', 'order', 'who'}
         if unknown:
             problems.append(f'{p}: unknown key(s) {", ".join(sorted(unknown))}')
         for k in ('show', 'default'):
@@ -493,8 +500,9 @@ def validate(conf):
                 problems.append(f'{p}.{k}: should be text')
         if 'order' in o and (isinstance(o['order'], bool) or not isinstance(o['order'], int)):
             problems.append(f'{p}.order: should be a whole number')
-    who = n['types']['joins']['who']
-    if not (who in ('admins', 'approvers', 'everyone') or (isinstance(who, list) and all(isinstance(x, str) and x for x in who))):
+        if 'who' in o and not who_ok(o['who']):
+            problems.append(f'{p}.who: admins, approvers, everyone or a list of usernames')
+    if not who_ok(n['types']['joins']['who']):
         problems.append("notifications.types.joins.who: admins, approvers, everyone or a list of usernames")
     a = conf['approvals']
     if not (a['approvers'] == 'admins' or (isinstance(a['approvers'], list)

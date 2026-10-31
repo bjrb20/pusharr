@@ -178,6 +178,18 @@ def is_approver(user):
     return (user['name'] or '').lower() in {x.lower() for x in rule}
 
 
+def who_allows(user, who, default='everyone'):
+    """A `who` setting (admins, approvers, everyone or a list of usernames) applied to one person."""
+    who = who or default
+    if who == 'everyone':
+        return True
+    if who == 'approvers':
+        return is_approver(user)
+    if isinstance(who, list):
+        return (user['name'] or '').lower() in {x.lower() for x in who}
+    return bool(user['is_admin'])
+
+
 def approvers():
     return [u for u in db().execute('select * from users').fetchall() if is_approver(u)]
 

@@ -80,14 +80,7 @@ def how(rec):
 
 def eligible(user):
     """Whether this Pusharr user can have the joins alert (notifications.types.joins.who)."""
-    who = config.get('notifications.types.joins.who', 'admins')
-    if who == 'everyone':
-        return True
-    if who == 'approvers':
-        return core.is_approver(user)
-    if isinstance(who, list):
-        return (user['name'] or '').lower() in {x.lower() for x in who}
-    return bool(user['is_admin'])
+    return core.who_allows(user, config.get('notifications.types.joins.who', 'admins'), 'admins')
 
 
 def announce(account, rec):

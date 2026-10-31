@@ -17,6 +17,7 @@ notifications: {batching: {import_wait: 1}, wait_for_ready: {enabled: false}}
 integrations:
   seerr: {enabled: true, url: 'http://127.0.0.1:9'}
   wizarr: {enabled: true, database: /nonexistent}
+  lidarr: {enabled: true}
 """)
 os.environ.update(DATA_DIR=tmp, CONFIG_DIR=tmp, ENV_FILE=env_file, JELLYFIN_API_KEY='k', INTERNAL_TOKEN='internal-secret',
                   WEBHOOK_USER='sonarr', WEBHOOK_PASSWORD='hook-secret', SEERR_API_KEY='x')
@@ -133,6 +134,25 @@ for _ in range(50):
 check(calls and calls[-1] == {'category': 'library', 'library': 'mov' + '0' * 29, 'title': 'Dune: Part Two (2024)', 'item_id': 'm' * 32,
                               'ids': {'type': 'movie', 'tmdb': 693134, 'item': 'm' * 32}},
       'new film announced in the library its folder belongs to (with its exact item)')
+calls.clear()
+libraries._cache['libs'].append({'id': 'mus' + '0' * 29, 'name': 'Music', 'type': 'music', 'paths': ['/data/music']})
+notifier.find_album = lambda mbid, folder=None: {'Id': 'b' * 32} if mbid == 'rg-1' else None
+check(post(hook + '/lidarr', {'eventType': 'Test'}) == (200, 'ok'), 'Lidarr test button answered')
+check(post(hook + '/lidarr', {'eventType': 'Download', 'isUpgrade': True, 'album': {}})[1] == 'ignored upgrade',
+      'Lidarr upgrades (MP3 -> FLAC) are not announced')
+check(post(hook + '/lidarr', {'eventType': 'Grab'})[1] == 'ignored Grab', 'other Lidarr events ignored')
+alb = {'eventType': 'Download', 'isUpgrade': False, 'artist': {'name': 'Skepta', 'path': '/data/music/Skepta'},
+       'album': {'id': 3, 'mbId': 'rg-1', 'title': 'Konnichiwa'},
+       'trackFiles': [{'path': '/data/music/Skepta/Konnichiwa (2016)/CD 1/01.flac'},
+                      {'path': '/data/music/Skepta/Konnichiwa (2016)/CD 2/01.flac'}]}
+check(notifier.album_folder(alb) == '/data/music/Skepta/Konnichiwa (2016)', "a multi-disc album's folder is the one above its discs")
+check(post(hook + '/lidarr', alb) == (200, 'new album Skepta – Konnichiwa: alert once Jellyfin has it'), 'first-time album import accepted')
+for _ in range(50):
+    if calls:
+        break
+    time.sleep(0.1)
+check(calls and calls[-1] == {'category': 'library', 'library': 'mus' + '0' * 29, 'title': 'Skepta – Konnichiwa', 'item_id': 'b' * 32,
+                              'ids': {'type': 'album', 'item': 'b' * 32}}, 'new album announced in the music library')
 calls.clear()
 notifier.send_episodes({'tvdb': 1, 'tmdb': 2, 'title': 'Frieren', 'keys': [[1, 1]], 'new_series': True,
                         'series_path': '/data/video/Anime/Frieren'}, {'series': 's' * 32})
@@ -279,6 +299,19 @@ notifier.ready_tick(core.now() + 6 * 3600 + 5)
 check(len(released) == 1 and released[0][2] == {'item': 'f' * 32} and not notifier.waiting(),
       'never complete: sent anyway after max_wait_hours (its page still deep-links)')
 
+released.clear()
+JF['album'], JF['album_item'] = None, None
+notifier.find_album = lambda mbid, folder=None: JF['album']
+real_jf_item = notifier.jf_item
+notifier.jf_item = lambda item_id: JF['album_item'] if JF['album'] and item_id == JF['album']['Id'] else real_jf_item(item_id)
+P_ALB = {'title': 'Skepta – Konnichiwa', 'mbid': 'rg-1', 'folder': '/data/music/Skepta/Konnichiwa (2016)',
+         'paths': ['/data/music/Skepta/Konnichiwa (2016)/01.flac']}
+check(notifier.check('album', P_ALB)[2] == 'album not in Jellyfin yet', 'album: waits until Jellyfin has it')
+JF['album'], JF['album_item'] = {'Id': 'b' * 32}, {'Name': 'Konnichiwa', 'ImageTags': {}}
+check(notifier.check('album', P_ALB)[:3] == (False, {'item': 'b' * 32}, 'album has no cover yet'), '... and its cover')
+JF['album_item'] = {'Name': 'Konnichiwa', 'ImageTags': {'Primary': 't'}}
+check(notifier.check('album', P_ALB)[0] is True, 'title and cover are enough (albums have no overview)')
+notifier.jf_item = real_jf_item
 released.clear()
 notifier.hold('request', 'request:5', {'payload': {}, 'title': 'Film', 'media_type': 'movie', 'tmdb': 9})
 JF['movie_item'] = full()
