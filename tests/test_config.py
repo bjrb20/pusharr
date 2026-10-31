@@ -116,7 +116,7 @@ for over, want in cases:
 check(problems_for({'approvals': {'approvers': ['alex', 'sam']}}) == [], 'approvers can be a list of usernames')
 check(problems_for({'libraries': {'Home Videos': {'show': True, 'label': 'Family', 'emoji': '🏠', 'default': True, 'order': 1}}}) == [],
       'per-library options')
-check(problems_for({'libraries': {'Music': {'show': True, 'who': ['ben']}}, 'integrations': {'lidarr': {'enabled': True}}}) == [],
+check(problems_for({'libraries': {'Music': {'show': True, 'who': ['sam']}}, 'integrations': {'lidarr': {'enabled': True}}}) == [],
       'a library can be limited to some people (who), and Lidarr switched on')
 write('notifications: {types: {movies: {enabled: false}, anime: {default: true}, episodes: {default: false}}}\n')
 check(config.load() == [] and config.get('notifications.types.episodes.default') is False
