@@ -232,7 +232,7 @@ async function renderAdmin() {
   if (!state.user.is_admin) return;
   const users = await api('/api/admin/users');
   const labels = { episodes: 'eps', approved: 'ok', declined: 'no', requests: 'req', issues: 'fix', announcements: 'news',
-    joins: 'joins' };
+    joins: 'joins', cleanup: 'cleanup' };
   for (const lib of state.libraries || []) labels[lib.key] = lib.label.toLowerCase();
   $('#users').replaceChildren(...users.map((u) => {
     const tr = document.createElement('tr');

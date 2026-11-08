@@ -104,6 +104,8 @@ DEFAULTS = {
             'auto_approved': {'enabled': True, 'default': False},
             # someone new joins (e.g. a Wizarr invite); who: admins, approvers, everyone or a list of usernames
             'joins': {'enabled': True, 'default': True, 'who': 'admins'},
+            # Cleanuparr removed a stuck/fake download (integrations.cleanuparr); who: as for joins
+            'cleanup': {'enabled': True, 'default': True, 'who': 'admins'},
         },
         'digest_hour': 19,
         'batching': {'import_wait': 180, 'library_wait': 60, 'library_burst_limit': 5, 'library_burst_window': 600},
@@ -127,6 +129,7 @@ DEFAULTS = {
         'lidarr': {'enabled': False, 'url': 'http://lidarr:8686'},     # music: "New in <music library>" on import
         'bazarr': {'enabled': False, 'url': 'http://bazarr:6767', 'language': 'en', 'language_name': 'English'},
         'wizarr': {'enabled': False, 'database': '/wizarr/database.db', 'sync_minutes': 15},
+        'cleanuparr': {'enabled': False},   # webhook only: Cleanuparr's ntfy provider -> /cleanuparr
     },
     'approvals': {
         'approvers': 'admins',          # 'admins' (Jellyfin administrators) or a list of Jellyfin usernames
@@ -502,8 +505,9 @@ def validate(conf):
             problems.append(f'{p}.order: should be a whole number')
         if 'who' in o and not who_ok(o['who']):
             problems.append(f'{p}.who: admins, approvers, everyone or a list of usernames')
-    if not who_ok(n['types']['joins']['who']):
-        problems.append("notifications.types.joins.who: admins, approvers, everyone or a list of usernames")
+    for t in ('joins', 'cleanup'):
+        if not who_ok(n['types'][t]['who']):
+            problems.append(f"notifications.types.{t}.who: admins, approvers, everyone or a list of usernames")
     a = conf['approvals']
     if not (a['approvers'] == 'admins' or (isinstance(a['approvers'], list)
                                            and all(isinstance(x, str) and x for x in a['approvers']))):

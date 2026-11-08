@@ -27,7 +27,7 @@ ENV = config.ENV
 DATA_DIR = ENV.get('DATA_DIR', '/data')
 
 PREF_TYPES = ('episodes', 'requests', 'approved', 'declined', 'issues', 'announcements', 'approvals', 'auto_approved',
-              'joins')
+              'joins', 'cleanup')
 CATEGORIES = {'episodes', 'requests', 'approved', 'declined', 'issues', 'announcements', 'library', 'test'}
 
 

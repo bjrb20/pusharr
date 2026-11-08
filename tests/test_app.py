@@ -855,6 +855,18 @@ req('POST', '/api/prefs', {'prefs': {'joins': True}}, cookie, csrf)
 set_conf('notifications.types.joins.who', 'everyone')
 check('joins' in req('GET', '/api/me', cookie=c2)[1]['types'], 'can be offered to everyone (notifications.types.joins.who)')
 set_conf('notifications.types.joins.who', 'admins')
+import cleanup  # noqa: E402
+pushes.clear()
+check(cleanup.on_cleanuparr({'title': 'Item deleted', 'message': 'Download removed\nReason: failed import'}) == 'sent'
+      and [p['msg']['title'] for p in pushes if 'msg' in p] == ['🧹 Item deleted'],
+      'Cleanuparr removal: pushed to admins only')
+check('cleanup' in req('GET', '/api/me', cookie=cookie)[1]['types'] and 'cleanup' not in req('GET', '/api/me', cookie=c2)[1]['types'],
+      '... and only admins are offered its toggle')
+req('POST', '/api/prefs', {'prefs': {'cleanup': False}}, cookie, csrf)
+pushes.clear()
+cleanup.on_cleanuparr({'title': 'Item deleted', 'message': 'x'})
+check(not pushes, '... unless they switch it off')
+req('POST', '/api/prefs', {'prefs': {'cleanup': True}}, cookie, csrf)
 for k in ('newbie', 'late', 'third'):
     USERS.pop(k)
 

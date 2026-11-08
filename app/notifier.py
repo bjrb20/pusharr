@@ -34,6 +34,7 @@ import config
 import contacts
 import core
 import issues
+import cleanup
 import joins
 import libraries
 import releases
@@ -52,7 +53,7 @@ def url(app):
 
 
 def webhooks_wanted():
-    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr', 'lidarr', 'wizarr'))
+    return any(config.get(f'integrations.{a}.enabled') for a in ('seerr', 'sonarr', 'radarr', 'lidarr', 'wizarr', 'cleanuparr'))
 
 
 def http(method, url, body=None, headers=None, timeout=30):
@@ -603,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, 'ok') if self.path == '/health' else self.reply(404, 'not found')
 
     def do_POST(self):
-        if self.path not in ('/sonarr', '/seerr', '/radarr', '/lidarr', '/wizarr'):
+        if self.path not in ('/sonarr', '/seerr', '/radarr', '/lidarr', '/wizarr', '/cleanuparr'):
             return self.reply(404, 'not found')
         want = 'Basic ' + base64.b64encode(f"{ENV.get('WEBHOOK_USER', '')}:{ENV.get('WEBHOOK_PASSWORD', '')}".encode()).decode()
         if not (ENV.get('WEBHOOK_USER') and ENV.get('WEBHOOK_PASSWORD')):
@@ -623,6 +624,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, 'bad json')
         if self.path == '/seerr':
             return self.reply(200, issues.on_seerr(payload))
+        if self.path == '/cleanuparr':  # Cleanuparr's ntfy provider: {"topic", "title", "message", ...}
+            return self.reply(200, cleanup.on_cleanuparr(payload if isinstance(payload, dict) else {}))
         ev = payload.get('eventType')
         if ev == 'Test':
             log(f'{self.path[1:].title()} test webhook received')

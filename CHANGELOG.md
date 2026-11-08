@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0 (2026-11-08)
+
+- **Download removed** (notification type `cleanup`, admins by default): Cleanuparr's ntfy provider can
+  post to `/cleanuparr` on the webhook port (webhook login). Each removal becomes one push,
+  "🧹 <title>" with Cleanuparr's description.
+  - **Setup:** `integrations.cleanuparr.enabled: true`; in Cleanuparr, an ntfy provider with server
+    `http://pusharr:8000/cleanuparr`, Basic auth, event *Queue Item Deleted*.
+  - **Who gets it:** `notifications.types.cleanup.who` (`admins`, `approvers`, `everyone` or a list).
+
 ## 1.6.0 (2026-10-31)
 
 - **Music:** Lidarr's webhook (`/lidarr`, *On Release Import*) announces new albums in their Jellyfin

@@ -1,6 +1,6 @@
 'use strict';
 // Service worker: shows pushes, handles Approve / Decline buttons, opens the right page on tap.
-const VERSION = '2026-10-27.2-{{version}}';   // bump on code changes; {{version}} changes with the config
+const VERSION = '2026-11-08.1-{{version}}';   // bump on code changes; {{version}} changes with the config
 
 const APP = '{{app}}';
 const ICON = '{{icon:icon-192.png}}';

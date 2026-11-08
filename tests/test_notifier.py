@@ -103,6 +103,13 @@ req_ = urllib.request.Request(hook + '/wizarr', data='User newbie has joined you
 with urllib.request.urlopen(req_, timeout=10) as r_:
     check(r_.status == 200 and r_.read() == b'checking', "Wizarr's ntfy agent (plain text) makes the new-account check run at once")
 check(post(hook + '/wizarr', {}, auth=None)[0] == 401, '... with the webhook login')
+NTFY = {'topic': 'cleanuparr', 'title': 'Item deleted', 'message': 'Download removed\nInstance: Sonarr\nReason: failed import'}
+check(post(hook + '/cleanuparr', NTFY)[0] == 404, 'Cleanuparr webhook off unless integrations.cleanuparr.enabled')
+config.current()['integrations']['cleanuparr'] = {'enabled': True}
+check(post(hook + '/cleanuparr', NTFY, auth=None)[0] == 401, '... and it needs the webhook login')
+check(post(hook + '/cleanuparr', {'topic': 'cleanuparr'}) == (200, 'empty'), 'Cleanuparr message with no text ignored')
+check(post(hook + '/cleanuparr', NTFY)[0] == 200, "Cleanuparr's ntfy provider (JSON) accepted")
+config.current()['integrations']['cleanuparr'] = {'enabled': False}
 check(post(hook + '/sonarr', {'eventType': 'Download', 'isUpgrade': True, 'series': {'title': 'Tracker'}})[1] == 'ignored upgrade',
       'upgrades ignored')
 calls.clear()

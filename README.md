@@ -37,6 +37,8 @@ file, or on the admin's **Branding & settings** page.
    - Sonarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/sonarr`
    - Radarr → Settings → Connect → Webhook, *On Import*: `http://pusharr:8000/radarr`
    - Lidarr (optional, music) → Settings → Connect → Webhook, *On Release Import*: `http://pusharr:8000/lidarr`
+  - Cleanuparr (optional, removed downloads) → Notifications → ntfy: server `http://pusharr:8000/cleanuparr`,
+    any topic, Basic auth with the webhook login, event *Queue Item Deleted*
    - Seerr → Settings → Notifications → Webhook: `http://pusharr:8000/seerr`. Types: *Request
      Pending Approval*, *Request Approved*, *Request Declined*, *Request Automatically Approved*, *Media Available*, *Issue Created*.
 6. **Sign in** as a Jellyfin administrator and open **Admin → Branding & settings** to make it yours.
@@ -67,7 +69,7 @@ need a restart.
 | `messages` | The title and text of every notification, with variables such as `{series}` `{episode}` `{count}` `{user}` `{what}` `{server}` `{app}`. The settings page lists which ones each message can use. |
 | `notifications` | Per type (`episodes`, `requests`, `issues`, `announcements`, `movies`, `shows`, `anime`, `approvals`, `auto_approved`): `enabled` (offered at all) and `default` (on for new people). `digest_hour`, `timezone`, batching thresholds. Follow rules: `recent_watch_days`, `caught_up`, `watchlist`, `requested`. |
 | `libraries` | "New in <library>" alerts come from your Jellyfin libraries. Per library (by name or id): `show` (default: yes, except home videos, music, collections, photos, books), `label`, `emoji`, `default` (on for new people), `order` and `who` (`admins`, `approvers`, `everyone` or a list of usernames). People only see, and only get alerts about, libraries they can open in Jellyfin (and that `who` lets them have). |
-| `integrations` | `seerr` (Seerr, Jellyseerr or Overseerr), `sonarr`, `radarr`, `lidarr` (new albums; webhook only, no API key), `bazarr` (subtitle problem reports, with a language), `wizarr` (optional Wizarr → Seerr user sync). Each has `enabled` and a URL; the API keys go in the env file. |
+| `integrations` | `seerr` (Seerr, Jellyseerr or Overseerr), `sonarr`, `radarr`, `lidarr` (new albums; webhook only, no API key), `bazarr` (subtitle problem reports, with a language), `wizarr` (optional Wizarr → Seerr user sync), `cleanuparr` (removed downloads; webhook only, no API key). Each has `enabled` and a URL; the API keys go in the env file. |
 | `approvals` | `approvers`: `admins` (Jellyfin administrators) or a list of usernames. Token and expiry times. The replacement picker's rules: wanted audio languages, whether the original language is accepted, and patterns that reject dubs, hard-coded subtitles and camera copies, plus minimum sizes. |
 | `server`, `session` | Ports, how long people stay signed in, and the session cookie name. |
 
@@ -174,6 +176,11 @@ point `branding.icon_dir` at it.
   - **Faster option:** point Wizarr's ntfy notification agent at `http://pusharr:8000/wizarr`, with
     the webhook login, to make the check run at once.
   - **Who gets it:** `notifications.types.joins.who` (admins by default).
+- **Download removed (admins):** when Cleanuparr removes a stuck, stalled or fake download, admins get
+  "🧹 <Cleanuparr's title>" with its description (which download, which app, why).
+  - **Setup:** `integrations.cleanuparr.enabled: true`, and Cleanuparr's ntfy provider pointed at
+    `http://pusharr:8000/cleanuparr` (see Setup). Cleanuparr sends nothing while it's in dry run.
+  - **Who gets it:** `notifications.types.cleanup.who` (admins by default).
 - **New in <library>:** Radarr imports and a series' first file, filed under the Jellyfin library
   whose folder holds them (else wherever Jellyfin put the item). More than
   `library_burst_limit` of a kind within `library_burst_window` (a big library import, say) are sent as
@@ -213,7 +220,7 @@ do.
 |---|---|---|
 | 8080 | the app and its API | yes, behind an HTTPS reverse proxy |
 | 8001 | `POST /notify` etc. for trusted services (Bearer `INTERNAL_TOKEN`) | **no**, internal Docker network only |
-| 8000 | Sonarr / Radarr / Seerr webhooks (basic auth) | **no**, internal only |
+| 8000 | Sonarr / Radarr / Lidarr / Seerr / Wizarr / Cleanuparr webhooks (basic auth) | **no**, internal only |
 
 ## Sending your own notifications
 

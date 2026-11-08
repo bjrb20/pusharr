@@ -51,6 +51,7 @@ integrations:                                   # each needs its API key in the 
   lidarr: {enabled: false}                      # music: webhook only (see the README)
   bazarr: {enabled: false, url: 'http://bazarr:6767'}
   wizarr: {enabled: false, database: /wizarr/database.db}
+  cleanuparr: {enabled: false}                  # removed downloads: webhook only (see the README)
 
 notifications:
   digest_hour: 19

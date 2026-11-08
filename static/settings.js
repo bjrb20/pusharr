@@ -16,7 +16,7 @@
   };
   const TYPE_LABELS = {
     episodes: 'New episodes', requests: 'Requests ready', issues: 'Reported problems fixed', announcements: 'Announcements',
-    approvals: 'Approvals (approvers)', joins: 'Someone new joins', approved: 'My requests are approved',
+    approvals: 'Approvals (approvers)', joins: 'Someone new joins', cleanup: 'Download removed (Cleanuparr)', approved: 'My requests are approved',
     declined: 'My requests are declined',
     auto_approved: 'Auto-approved requests (approvers)',
   };
@@ -72,6 +72,7 @@
           [`notifications.types.${k}.default`, `${TYPE_LABELS[k] || k}: on for new people`, 'bool'],
         ]),
         ['notifications.types.joins.who', 'Who can get "someone new joins": admins, approvers, everyone, or a YAML list of usernames', 'yaml'],
+        ['notifications.types.cleanup.who', 'Who can get "download removed (Cleanuparr)": admins, approvers, everyone, or a YAML list of usernames', 'yaml'],
         ['notifications.digest_hour', 'Daily digest at (hour, 0–23)', 'number'],
         ['notifications.batching.import_wait', 'Wait after an import before telling people (seconds)', 'number'],
         ['notifications.batching.library_wait', 'New films/shows: wait before sending (seconds)', 'number'],
@@ -107,6 +108,7 @@
         ['integrations.wizarr.enabled', 'Wizarr → Seerr user sync', 'bool'],
         ['integrations.wizarr.database', "Wizarr's database file (mounted read-only)", 'text'],
         ['integrations.wizarr.sync_minutes', 'Sync every (minutes)', 'number'],
+        ['integrations.cleanuparr.enabled', 'Cleanuparr (removed downloads, via its ntfy provider)', 'bool'],
       ]],
       ['Approvals and replacement copies', [
         ['approvals.approvers', "Approvers: admins (Jellyfin administrators) or a YAML list of usernames", 'yaml'],
